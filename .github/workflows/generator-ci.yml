@@ -111,21 +111,24 @@ jobs:
           enable-cache: true
       - run: uv python install ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen || uv sync
-      # TODO(TestingHarness): replace with the real pairwise invocation once the
-      # contract lands (see DevOps -> TestingHarness message, Phase 1). The
-      # harness is being built under harness/; entrypoint + pairwise flag are not
-      # settled yet, so this slot is a skip-safe no-op that runs it if present.
+      # Contract confirmed by TestingHarness (Phase 1). Exit 0 when every executed
+      # combo passes (SKIPPED combos are fine) or the generator is unavailable and
+      # not --strict; exit 1 on a real combo failure. Today only the zero-overlay
+      # combo executes; more activate as overlays reach build_status: implemented.
       - name: pairwise harness
         run: |
           if [ -f harness/run.py ]; then
-            uv run python harness/run.py --mode pairwise
-          elif [ -f tests/harness/run.py ]; then
-            uv run python tests/harness/run.py --mode pairwise
-          elif [ -f pyproject.toml ] && uv run python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('harness') else 1)"; then
-            uv run python -m harness --mode pairwise || echo "harness module present but has no CLI yet -> skip"
+            uv run python harness/run.py --mode pairwise --report-dir harness-report
           else
-            echo "pairwise harness not wired yet -> skip (Phase 1 slot only)"
+            echo "harness/run.py not present -> skip (Phase 1 slot only)"
           fi
+      - name: upload harness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-report
+          path: harness-report
+          if-no-files-found: ignore
 
   update-verify:
     runs-on: ubuntu-latest

@@ -71,7 +71,9 @@ git -C "$TPL" commit -q -m "base template"
 git -C "$TPL" tag -a "$BASE_TAG" -m "$BASE_TAG"
 
 # --- 2. generate project at vBASE ------------------------------------------------
-GEN_ARGS=(copier copy --force --vcs-ref "$BASE_TAG")
+# --trust: template ships list-form _tasks (D-012); --skip-tasks: the copy-time
+# `uv lock` task reads the live index and needs no network here.
+GEN_ARGS=(copier copy --force --trust --skip-tasks --vcs-ref "$BASE_TAG")
 if [ -n "$ANSWERS" ]; then
   ANSWERS="$(cd "$(dirname "$ANSWERS")" && pwd)/$(basename "$ANSWERS")"
   GEN_ARGS+=(--data-file "$ANSWERS")
@@ -97,10 +99,11 @@ git -C "$TPL" tag -a "$NEXT_TAG" -m "$NEXT_TAG"
 
 # --- 4. copier update ---------------------------------------------------------
 # copier update: -f/--defaults (no --force switch); --trust allows list-form
-# _tasks / migrations the real template will carry; --conflict rej makes an
-# unclean apply show up as .rej files rather than inline markers.
+# _tasks / migrations the real template will carry; --skip-tasks since the
+# template's _tasks are copy-only anyway; --conflict rej makes an unclean apply
+# show up as .rej files rather than inline markers.
 set +e
-UPDATE_OUT="$(cd "$PRJ" && copier update --defaults --trust --conflict rej --vcs-ref "$NEXT_TAG" 2>&1)"
+UPDATE_OUT="$(cd "$PRJ" && copier update --defaults --trust --skip-tasks --conflict rej --vcs-ref "$NEXT_TAG" 2>&1)"
 UPDATE_RC=$?
 set -e
 echo "$UPDATE_OUT"

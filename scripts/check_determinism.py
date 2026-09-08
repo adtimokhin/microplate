@@ -39,10 +39,15 @@ def _run_copier(template: Path, answers: Path, dest: Path, vcs_ref: str | None) 
         "--force",
         # --trust: the template legitimately declares list-form `_tasks` (D-012),
         # which Copier classifies as an "unsafe" feature; without --trust Copier
-        # exits 4 without rendering. verify_update.sh does the same.
+        # exits 4 without rendering.
+        # --skip-tasks: the one sanctioned non-deterministic step is the post-copy
+        # `uv lock` task (overlay-contract §4.4a); it reads the live index, so its
+        # `uv.lock` output can differ between runs. The RENDER is deterministic,
+        # which is what this check proves, so tasks are skipped.
         # --defaults: keep the run non-interactive (answers files are complete;
         # this only stops a hang if one is ever missing an answer).
         "--trust",
+        "--skip-tasks",
         "--defaults",
         "--data-file",
         str(answers),
