@@ -1,0 +1,151 @@
+name: generator-ci
+
+# CI for the generator repository itself (not for generated projects).
+# Fast, uv-cached. Determinism and clean `copier update` are the two properties
+# these jobs defend.
+
+on:
+  push:
+    branches: [main, "development", "relase/*", "release/*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: generator-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.10"          # generator dev toolchain (registry meta pins this)
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen || uv sync
+      - name: ruff
+        run: uv run ruff check msvc_gen scripts tests
+      - name: ruff format check
+        run: uv run ruff format --check msvc_gen scripts tests
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen || uv sync
+      - name: mypy
+        run: uv run mypy
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen || uv sync
+      - name: pytest
+        run: uv run pytest -q
+
+  registry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen || uv sync
+      - name: validate registry.yaml
+        run: uv run python scripts/validate_registry.py registry.yaml
+      # TODO(Phase 5 / RegistryArchitect): once scripts/gen_copier_yml.py is real,
+      # drop --allow-missing so drift between registry.yaml and copier.yml fails CI.
+      - name: copier.yml sync check
+        run: uv run python scripts/gen_copier_yml.py --check --allow-missing registry.yaml
+
+  determinism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen || uv sync
+      # Proves the render-twice-and-diff harness works, today, against a fixture.
+      - name: determinism (fixture, strict)
+        run: >
+          uv run python scripts/check_determinism.py
+          --template tests/fixtures/determinism_fixture
+          --answers-dir tests/fixtures/determinism_fixture/answers
+          --strict
+      # Real template: skip-safe until the base template lands (no copier.yml at root).
+      - name: determinism (generator template)
+        run: >
+          uv run python scripts/check_determinism.py
+          --template .
+          --answers-dir ci/answers
+
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen || uv sync
+      # TODO(TestingHarness): replace with the real pairwise invocation once the
+      # contract lands (see DevOps -> TestingHarness message, Phase 1). The
+      # harness is being built under harness/; entrypoint + pairwise flag are not
+      # settled yet, so this slot is a skip-safe no-op that runs it if present.
+      - name: pairwise harness
+        run: |
+          if [ -f harness/run.py ]; then
+            uv run python harness/run.py --mode pairwise
+          elif [ -f tests/harness/run.py ]; then
+            uv run python tests/harness/run.py --mode pairwise
+          elif [ -f pyproject.toml ] && uv run python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('harness') else 1)"; then
+            uv run python -m harness --mode pairwise || echo "harness module present but has no CLI yet -> skip"
+          else
+            echo "pairwise harness not wired yet -> skip (Phase 1 slot only)"
+          fi
+
+  update-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv python install ${{ env.PYTHON_VERSION }}
+      - run: uv sync --frozen || uv sync
+      # E2E against the fixture: real local tag pair, real `copier update`.
+      # `uv run` puts the project venv (which has copier) on PATH for the script.
+      - name: copier update verification (fixture)
+        run: >
+          uv run bash scripts/verify_update.sh
+          --template-repo tests/fixtures/determinism_fixture
+          --answers tests/fixtures/determinism_fixture/answers/default.yml
+      # Real template: skip-safe until it lands.
+      - name: copier update verification (generator template)
+        run: uv run bash scripts/verify_update.sh --template-repo . --answers ci/answers/zero-overlay.yml

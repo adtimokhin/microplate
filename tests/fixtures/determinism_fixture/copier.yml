@@ -1,0 +1,14 @@
+# Trivial Copier template used only to prove scripts/check_determinism.py works
+# end to end before the real template lands. Deterministic by construction:
+# no time/random Jinja, list-form task, fixed iteration order.
+_subdirectory: template
+_templates_suffix: .jinja
+_min_copier_version: "9.18.2"
+
+service_name:
+  type: str
+  default: demo
+
+replicas:
+  type: int
+  default: 2

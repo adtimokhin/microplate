@@ -1,0 +1,2 @@
+service_name: demo
+replicas: 2

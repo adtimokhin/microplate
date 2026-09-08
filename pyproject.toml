@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "msvc-gen"
+version = "0.0.0"
+description = "Deterministic Copier-based microservice boilerplate generator"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Platform Team" }]
+keywords = ["copier", "generator", "microservice", "scaffold"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.12",
+]
+
+# Runtime dependencies. Pins are frozen per D-019; bumps go through the
+# "refresh pins" task (docs/release-process.md). copier floor is meta.copier_min_version
+# in registry.yaml (9.18.2); pinned exact here for a reproducible generator install.
+dependencies = [
+    "copier==9.18.2",
+    "pyyaml==6.0.2",
+]
+
+[project.scripts]
+# Console-script entrypoint. Name and target coordinated with the Base Template
+# Engineer (CLI body lives in msvc_gen/cli.py). If the CLI module path changes,
+# update this line and the mypy/ruff targets in .github/workflows/generator-ci.yml.
+msvc-gen = "msvc_gen.cli:main"
+
+[dependency-groups]
+# PEP 735 dev group. Never installed by `pip install msvc-gen`; used by CI and
+# local dev via `uv sync`.
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.16.6",
+    "mypy==2.3.1",
+    "types-pyyaml==6.0.12.20250915",
+    "packaging==26.3",              # used by scripts/refresh_pins.py
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["msvc_gen"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/msvc_gen",
+    "/registry.yaml",
+    "/copier.yml",
+    "/template",
+    "/includes",
+    "/scripts",
+    "/docs",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["template", "includes"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["msvc_gen", "scripts"]
+exclude = ["template/", "includes/"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

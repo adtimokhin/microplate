@@ -1,0 +1,60 @@
+name: refresh-pins
+
+# D-019 "refresh pins" task. Re-verifies every python_deps / image pin in
+# registry.yaml and pyproject.toml against upstream, then opens ONE pull request
+# with the bumps and refreshed `as_of` dates. Bumps are NOT auto-merged: the PR
+# review is the required per-pin upstream re-verification.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"        # Mondays 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      write:
+        description: "Apply bumps (open PR). Unchecked = report only."
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.10"
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen || uv sync
+
+      - name: refresh pins
+        id: refresh
+        run: |
+          set +e
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.write }}" = "true" ]; then
+            uv run python scripts/refresh_pins.py --write
+          else
+            uv run python scripts/refresh_pins.py
+          fi
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+
+      - name: upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pin-refresh-report
+          path: pin-refresh-report.md
+
+      - name: open PR
+        if: ${{ github.event_name == 'schedule' || inputs.write }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/refresh-pins
+          title: "chore: refresh dependency pins"
+          commit-message: "chore: refresh dependency pins (as_of ${{ github.run_id }})"
+          body-path: pin-refresh-report.md
+          labels: dependencies
+          delete-branch: true

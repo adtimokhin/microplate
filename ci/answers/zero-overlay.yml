@@ -1,0 +1,11 @@
+# Zero-overlay baseline: the plain FastAPI service, no optional keys selected.
+# Placeholder values; the Base Template Engineer confirms the required keys and
+# their spellings against registry.yaml when the base template lands.
+service_name: sample-service
+license: proprietary
+# All overlay booleans default false in the registry, so they are omitted here.
+tests_unit: true
+tests_integration: false
+logging_structured: true
+docker: true
+ci: github_actions
