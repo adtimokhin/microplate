@@ -37,6 +37,13 @@ def _run_copier(template: Path, answers: Path, dest: Path, vcs_ref: str | None) 
         "copier",
         "copy",
         "--force",
+        # --trust: the template legitimately declares list-form `_tasks` (D-012),
+        # which Copier classifies as an "unsafe" feature; without --trust Copier
+        # exits 4 without rendering. verify_update.sh does the same.
+        # --defaults: keep the run non-interactive (answers files are complete;
+        # this only stops a hang if one is ever missing an answer).
+        "--trust",
+        "--defaults",
         "--data-file",
         str(answers),
     ]
@@ -71,11 +78,29 @@ def _diff(a: Path, b: Path) -> list[str]:
     return problems
 
 
+def _strip_commit_line(dest: Path) -> None:
+    """Drop the `_commit:` line from a rendered `.copier-answers.yml`.
+
+    Only used on the unpinned/dirty-template path. Copier snapshots a dirty
+    template into a throwaway commit whose SHA changes on every invocation, so
+    `_commit` there is Copier bookkeeping, not a function of template content.
+    On the pinned path `_commit` is stable and is compared normally.
+    """
+    ans = dest / ".copier-answers.yml"
+    if not ans.exists():
+        return
+    kept = [ln for ln in ans.read_text().splitlines(keepends=True) if not ln.startswith("_commit:")]
+    ans.write_text("".join(kept))
+
+
 def check_one(template: Path, answers: Path, vcs_ref: str | None) -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         d1, d2 = Path(tmp) / "run1", Path(tmp) / "run2"
         _run_copier(template, answers, d1, vcs_ref)
         _run_copier(template, answers, d2, vcs_ref)
+        if vcs_ref is None:
+            _strip_commit_line(d1)
+            _strip_commit_line(d2)
         problems = _diff(d1, d2)
         # filecmp cross-check for good measure
         if not problems:
@@ -114,9 +139,38 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[determinism] no answers files in {args.answers_dir}", file=sys.stderr)
         return 1
 
+    # A determinism check is only meaningful at a fixed template ref (D-012).
+    # When the template dir is its own git repo, no --vcs-ref was given, and
+    # `copier.yml` is committed at HEAD, pin BOTH renders to that one commit
+    # (resolved once here) so `.copier-answers.yml`'s `_commit` field cannot drift
+    # if something else commits to the repo between the two renders.
+    # If `copier.yml` is only in the working tree (not yet committed), pinning
+    # would make Copier miss it, so fall back to an unpinned worktree render.
+    vcs_ref = args.vcs_ref
+    if vcs_ref is None and (args.template / ".git").exists():
+        tracked = subprocess.run(
+            ["git", "-C", str(args.template), "ls-files", "--error-unmatch", "copier.yml"],
+            capture_output=True,
+            text=True,
+        )
+        if tracked.returncode == 0:
+            head = subprocess.run(
+                ["git", "-C", str(args.template), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            vcs_ref = head
+            print(f"[determinism] pinning both renders to {args.template}@{head[:12]}")
+        else:
+            print(
+                "[determinism] copier.yml is not committed at HEAD; rendering from the "
+                "working tree unpinned (a concurrent commit can make _commit differ)"
+            )
+
     failed = False
     for answers in answers_files:
-        problems = check_one(args.template, answers, args.vcs_ref)
+        problems = check_one(args.template, answers, vcs_ref)
         if problems:
             failed = True
             print(f"[determinism] FAIL {answers.name}:", file=sys.stderr)

@@ -42,7 +42,44 @@ def test_gen_copier_yml_stub_errors_without_allow_missing() -> None:
     assert res.returncode == 3
 
 
-def test_check_determinism_skips_when_no_copier_yml() -> None:
-    res = _run("scripts/check_determinism.py", "--template", ".", "--answers-dir", "ci/answers")
-    assert res.returncode == 0
+def test_check_determinism_skips_when_no_copier_yml(tmp_path: Path) -> None:
+    """With no copier.yml under --template and no --strict, the check skips clean."""
+    (tmp_path / "answers").mkdir()
+    (tmp_path / "answers" / "a.yml").write_text("x: 1\n")
+    res = _run(
+        "scripts/check_determinism.py",
+        "--template",
+        str(tmp_path),
+        "--answers-dir",
+        str(tmp_path / "answers"),
+    )
+    assert res.returncode == 0, res.stderr
     assert "skip" in res.stdout
+
+
+def test_check_determinism_strict_fails_when_no_copier_yml(tmp_path: Path) -> None:
+    res = _run(
+        "scripts/check_determinism.py",
+        "--template",
+        str(tmp_path),
+        "--answers-dir",
+        str(tmp_path),
+        "--strict",
+    )
+    assert res.returncode == 1
+
+
+def test_check_determinism_runs_on_bundled_fixture() -> None:
+    """The fixture template has a copier.yml, so the check runs (not skips) and
+    two renders are byte-identical."""
+    res = _run(
+        "scripts/check_determinism.py",
+        "--template",
+        "tests/fixtures/determinism_fixture",
+        "--answers-dir",
+        "tests/fixtures/determinism_fixture/answers",
+        "--strict",
+    )
+    assert res.returncode == 0, res.stderr
+    assert "skip" not in res.stdout
+    assert "ok" in res.stdout
