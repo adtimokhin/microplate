@@ -476,3 +476,30 @@ full 33-overlay implemented matrix.
   - `template/README.md.jinja`: "Git hooks" + expanded "Lint, format, and type-check" section.
   - Verified: mis-formatted staged file -> commit blocked; clean file -> commit passes. `ruff check` / `ruff format --check` / `mypy --strict` / `pytest` (7) green on a `db_postgres`+`crud_scaffold` render. Double-render byte-identical (rendered tree; `.venv`/`.copier-answers.yml` excluded). `pre-commit==4.3.0` resolves in `uv lock` (56 pkgs).
   - Also committed VerificationEngineer's two Phase 6 working-tree edits: `test_transport_rabbitmq_boots.py` env-isolation hardening (monorepo `test_transport_settings_defaults` was reading leaked `APP_TRANSPORT_*`), and the `harness/README.md` Phase 6 gate section.
+
+## Phase 6 - FINAL VERDICT: PASS (2026-09-09, VerificationEngineer)
+
+Authoritative gate (`combinations.py pairwise --pin tests_integration=false`, 28 combos ->
+`run.py --manifest`, Docker up) against tree **c72869a** (includes D-040 pre-commit hook):
+**effective 28 / 28 PASS.** First pass was 27/1 - the one fail (`determinism: differs
+.pre-commit-config.yaml`) was the D-040 commit landing mid-render between render_1 and
+render_2; re-run of that combo alone against the stable tree passed (render x2 byte-identical,
+uv lock/sync, pytest, boots tests, compose_config, compose_boot qdrant+rabbitmq healthy).
+Every combo that ran its determinism check on a quiescent tree passed it.
+
+- Supporting: full unpinned 49-combo pairwise+singletons 40/9 - the 9 are all deferred
+  (`tests_integration: true` -> D-031 container-mode pytest + non-integration-aware base
+  health test; 1 concurrent-edit transient). compose_boot 13/13 across both runs (all 5
+  backing services healthy solo and combined).
+- Targeted deep combos all green (ruff + ruff format + mypy --strict + pytest): AI-heavy
+  12-overlay (46/27), langgraph+postgres (24/9), langgraph+redis (20/8), monorepo 2-svc via
+  real `msvc-gen new` (api 36/14, worker 25/13), rag-backend openai (28/13), mcp+grpc (24/9),
+  transport_rabbitmq (16/8), datastore-postgres-redis.
+- 6 fixes committed (046390b + c72869a): conftest whitespace, mcp add_tool, langgraph types,
+  rabbitmq bus format, rabbitmq boots env-isolation, harness Phase 6 gate doc.
+- Note: three determinism false-positives across all runs were each a template/registry commit
+  landing mid-gate. The generator itself is deterministic - every non-concurrent back-to-back
+  render VerificationEngineer produced was byte-identical. A single spotless artifact run would
+  need a ~15-min freeze on all template/ + registry.yaml + copier.yml + includes/ commits.
+
+**Phases 3, 4, 5, 6 all complete and green.** Remaining: Phase 7 (hardening) + Phase 8 (release).
