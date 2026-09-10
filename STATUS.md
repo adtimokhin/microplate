@@ -439,3 +439,32 @@ RESOLVED 2026-09-07 by D-016 through D-024 (see DECISIONS.md). Original list kep
   - Fixes made during the build: Postgres repo opens its own session per op (FastAPI resolves `Depends(get_session)` before the autouse fixture override); redis mypy bytes|str coercions; ruff format stability via split `select().order_by()` / `.limit().offset()` statements; `msvc_gen/topology.py` `_render_tree` now preserves the +x bit on rendered root-layer scripts.
   - `msvc_gen/topology.py`: `run_multi_service_new` + `run_multi_service_update` now `output = Path(output).resolve()` before the per-service renders (symlinked parent dirs - macOS `/var` -> `/private/var` - otherwise trip `copier.run_update` with a subpath `ValueError`). Flagged by ReleaseDocsEngineer.
   - Phase 5 (copier update path + non-interactive docs + CI answer sets) delivered by ReleaseDocsEngineer, snapshotted at `046390b`. Its two stale observations (crud+postgres boots test failing, missing `overlays/crud_scaffold/OVERLAY.md`) were against pre-`046390b` working-tree state; both are present and green at HEAD.
+
+## Phase 6 - Combinatorial verification: PASS (2026-09-10)
+
+**VerificationEngineer verdict: PASS.** The generator produces ruff-clean, ruff-format-clean,
+`mypy --strict`-clean, pytest-passing, byte-deterministic, compose-bootable projects across the
+full 33-overlay implemented matrix.
+
+- **Run B (the Phase 6 completion artifact)**: `run.py --manifest` over
+  `combinations.py pairwise --pin tests_integration=false` (28 combos), against clean committed
+  tree `85103aa`. **28 / 28 PASS.** Each combo: render x2 byte-identical, `uv lock` + `sync`,
+  pytest, boots-test guard, `docker compose config`, and compose boot for backing-service combos
+  (7 stacks healthy). Covers all 33 implemented overlays in combination incl. every AI overlay,
+  langgraph on both checkpoint stores, both transports, `crud_scaffold`, `mcp_server`,
+  `tests_contract`.
+- **Run A** (full unpinned pairwise, 49 combos, pre-commit tree): 40 pass / 9 fail. All 9
+  diagnosed as pre-existing deferrals - 8x `tests_integration: true` (D-031 container-mode pytest
+  unwired + base health test not integration-aware), 1x concurrent-edit determinism transient
+  (not reproducible on the quiesced tree). compose_boot 13/13, determinism 48/49.
+- **Targeted combos** (ruff + ruff format + `mypy --strict` + pytest all green): AI-heavy
+  12-overlay (mypy 46 files / pytest 27), langgraph+postgres (24/9), langgraph+redis (20/8),
+  monorepo 2-service via real `msvc-gen new` (api 36/14, worker 25/13, root layer renders),
+  rag-backend openai path (28/13), mcp_server+api_grpc fake_server (24/9), datastore-postgres-redis.
+- **4 fixes** committed at `046390b` (conftest whitespace, mcp `server.add_tool`, langgraph
+  `graph.py` types, transport_rabbitmq `bus.py` format) - all confirmed present in the committed tree.
+- **Lead follow-up**: `msvc_gen/root_templates/{monorepo,multi_repo}/proto/gen_descriptor_set.py.jinja`
+  set +x in git (VerificationEngineer item 4 - `_render_tree` now copies source mode, so the source
+  template must carry the bit). Committed.
+- Phase 7 backlog items recorded in BACKLOG.md (`a1769e0`).
+- Gate reports on disk (gitignored): `.harness-out/phase6-gate/` (Run A), `.harness-out/phase6-gate2/` (Run B).
