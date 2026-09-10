@@ -486,6 +486,7 @@ def run_multi_service_new(
     dry_run: bool,
     quiet: bool,
 ) -> int:
+    output = Path(output).resolve()  # symlinked parents (macOS /var) break copier.run_update
     topology, service_names, services_config = _prepare(data)
     if not quiet:
         print(f"topology={topology}: {len(service_names)} services {service_names} -> {output}")
@@ -530,6 +531,7 @@ def run_multi_service_update(
     layer. The roster and per-service config come from the passed ``data`` (the
     root manifest answers file), not re-discovered from disk."""
 
+    output = Path(output).resolve()  # symlinked parents (macOS /var) break copier.run_update
     topology, service_names, services_config = _prepare(data)
     for svc in service_names:  # frozen order
         dest = service_dest(output, topology, svc)
