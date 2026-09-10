@@ -503,3 +503,10 @@ Every combo that ran its determinism check on a quiescent tree passed it.
   need a ~15-min freeze on all template/ + registry.yaml + copier.yml + includes/ commits.
 
 **Phases 3, 4, 5, 6 all complete and green.** Remaining: Phase 7 (hardening) + Phase 8 (release).
+
+- **Lead** (2026-09-09): `claude_hooks` overlay - vendor Claude Code hooks into generated `.claude/` (D-041, owner directive).
+  - New overlay (last in `overlay_order`): master key `claude_hooks` + 6 `hook_*` sub-bools (`when: claude_hooks`). Curated subset of karanb192/claude-code-hooks (MIT, commit `18b77a5`) vendored as pure `.js` under `.claude/hooks/`; `.claude/settings.json` generated to wire only the selected hooks; `.claude/.gitignore`; `.claude/hooks/VENDORED.md` provenance + license.
+  - Files: `template/{% if claude_hooks %}.claude{% endif %}/...` (settings.json.jinja, .gitignore.jinja, hooks/VENDORED.md.jinja, per-`hook_*`-gated `*.js.jinja` incl. `guard-pack` + `lib/` x6), `template/{% if claude_hooks %}tests{% endif %}/overlays/test_claude_hooks_boots.py.jinja`, `overlays/claude_hooks/OVERLAY.md`.
+  - `registry.yaml` (7 keys + overlay_order + stale header comment refreshed), `includes/answers_helpers.jinja` (overlay_order + _gates), `msvc_gen/topology.py` (`SHARED_PASSTHROUGH_KEYS` += the 7), `docs/services-config-schema.md` §2.1. copier.yml regenerated (440 lines, `--check` clean).
+  - Verified: default / all-on / off renders; ruff + ruff format + mypy --strict clean; generator pytest 32 pass, boots test 4 pass; double-render byte-identical; vendored JS byte-identical to upstream; `node --check` green on all scripts. 34 keys `build_status: implemented`.
+  - Hooks need node >=18 (fail-open if absent). ~15 upstream hooks not vendored (BACKLOG).

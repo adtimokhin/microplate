@@ -80,6 +80,15 @@ SHARED_PASSTHROUGH_KEYS = (
     "service_names",
     "transport_grpc",
     "transport_rabbitmq",
+    # claude_hooks + its hook_* sub-options are answered once; each service dir
+    # gets its own .claude/ rendered from the shared answer (D-041).
+    "claude_hooks",
+    "hook_guard_pack",
+    "hook_format_code",
+    "hook_protect_tests",
+    "hook_auto_stage",
+    "hook_session_logger",
+    "hook_instructions_audit",
 )
 
 # Keys a per-service submap MAY carry. Mirrors docs/services-config-schema.md 2.2:

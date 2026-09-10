@@ -2,9 +2,13 @@
 # Single source of truth for the generator question schema.
 # copier.yml is DERIVED from this file by scripts/gen_copier_yml.py. Never hand-edit copier.yml.
 # Schema: docs/registry-schema.md   Overlay rules: docs/overlay-contract.md
-# build_status "implemented": otel_tracing (Phase 1 / D-024); and all 9 Phase 2 overlays -
-# db_postgres, db_mongodb, db_redis, redis_pubsub, db_qdrant, messaging_rabbitmq, api_grpc,
-# streaming_sse, streaming_grpc, tool_scaffold. All others (AI, topology, mcp_server) "planned".
+# build_status "implemented": the full overlay set as of Phase 6 - otel_tracing; the 9 Phase 2
+# overlays (db_postgres, db_mongodb, db_redis, redis_pubsub, db_qdrant, messaging_rabbitmq,
+# api_grpc, streaming_sse, streaming_grpc, tool_scaffold); the Phase 3 AI overlays (mcp_server,
+# llm_openai, llm_anthropic, prompt_management, langchain, embedding_pipeline, langsmith) and
+# topology (topology, service_names, services_config, transport_grpc, transport_rabbitmq,
+# tests_contract); Phase 4 langgraph; Phase 7 additions crud_scaffold (D-039) and claude_hooks
+# (D-041). Still "planned": tests_unit, tests_integration, and the base-scaffold keys.
 # PINS ARE FROZEN as of 2026-09-07 (D-019). Every version in python_deps / compose_services /
 # compose_image_pins is exact and carries an `as_of` date. Overlay engineers use the registry pin
 # as-is. Pins change only through an explicit DevOps "refresh pins" PR that re-verifies each bump
@@ -61,6 +65,7 @@ overlay_order:
   - langgraph
   - langsmith
   - otel_tracing
+  - claude_hooks
 
 groups:
   base:          { title: "Service basics",        order: 10 }
@@ -926,6 +931,97 @@ options:
     build_status: planned
     milestone: 2
     notes: "Cloud-agnostic in v1 (D-003). Reserved key."
+
+  claude_hooks:
+    key: claude_hooks
+    group: packaging
+    prompt: "Vendor Claude Code hooks into .claude/ (dev-safety guardrails, auto-format)?"
+    type: bool
+    default: true
+    gate: "claude_hooks"
+    overlay_id: claude_hooks
+    template_paths:
+      - "template/{% if claude_hooks %}.claude{% endif %}"
+    python_deps: {}
+    env_vars: []
+    fixtures: []
+    health_checks: []
+    ci_steps: "Offline: assert .claude/settings.json is valid JSON and every wired hook script exists. `node --check` each script when node is on PATH."
+    boots_test: "tests/overlays/test_claude_hooks_boots.py"
+    build_status: implemented
+    milestone: 7
+    notes: >-
+      D-041. Vendors the curated subset of karanb192/claude-code-hooks (MIT, commit 18b77a5) as
+      pure JS under .claude/hooks/, and generates .claude/settings.json wiring only the hooks whose
+      hook_* sub-key is true. Which hooks are vendored AND wired is controlled per project by the
+      hook_* booleans below. Hooks need node >=18 on PATH (they fail-open if absent); format-code
+      also uses `uv run ruff` (present) and `npx prettier` for non-Python files.
+
+  hook_guard_pack:
+    key: hook_guard_pack
+    group: packaging
+    prompt: "  guard-pack: block dangerous shell, secret reads, unsafe git, test deletion, fs-case, config tampering (PreToolUse)"
+    type: bool
+    default: true
+    when: "claude_hooks"
+    build_status: implemented
+    milestone: 7
+    notes: "D-041. Vendors guard-pack.js + hooks/lib/{block-dangerous-commands,protect-secrets,git-safety,protect-tests,case-insensitive-guard,config-guard}.js (guard-pack resolves lib/ via __dirname). One Node process for all six guards."
+
+  hook_format_code:
+    key: hook_format_code
+    group: packaging
+    prompt: "  format-code: run `ruff format` + `ruff check --fix` on written Python, prettier on JS/JSON/MD/YAML (PostToolUse)"
+    type: bool
+    default: true
+    when: "claude_hooks"
+    build_status: implemented
+    milestone: 7
+    notes: "D-041. Same ruff as the pre-commit hook (D-040) and CI."
+
+  hook_protect_tests:
+    key: hook_protect_tests
+    group: packaging
+    prompt: "  protect-tests (standalone): block deleting / renaming-away / skip-xfail-disabling tests to fake a green suite (PreToolUse)"
+    type: bool
+    default: true
+    when: "claude_hooks"
+    build_status: implemented
+    milestone: 7
+    notes: "D-041. Redundant when hook_guard_pack is on (guard-pack bundles the same logic); harmless together but guard-pack's copy will run first. Kept selectable for guard-pack-off setups."
+
+  hook_auto_stage:
+    key: hook_auto_stage
+    group: packaging
+    prompt: "  auto-stage: `git add` files after Claude edits them (PostToolUse)"
+    type: bool
+    default: false
+    when: "claude_hooks"
+    build_status: implemented
+    milestone: 7
+    notes: "D-041. Off by default - some workflows prefer to stage manually."
+
+  hook_session_logger:
+    key: hook_session_logger
+    group: packaging
+    prompt: "  session-logger: durable markdown log of each session (files touched, bash commands) under ~/.claude/sessions (SessionStart/PostToolUse/SessionEnd)"
+    type: bool
+    default: false
+    when: "claude_hooks"
+    build_status: implemented
+    milestone: 7
+    notes: "D-041. Writes to $HOME, not the repo."
+
+  hook_instructions_audit:
+    key: hook_instructions_audit
+    group: packaging
+    prompt: "  instructions-audit: scan instruction files for hidden/hostile directives, lock session on detection (InstructionsLoaded/UserPromptSubmit/PreToolUse)"
+    type: bool
+    default: false
+    when: "claude_hooks"
+    build_status: implemented
+    milestone: 7
+    notes: "D-041. Off by default - can be noisy on large CLAUDE.md trees; HOOK_AUDIT_WARN_ONLY=true softens it."
 
   # ---- computed internals --------------------------------
   # No leading underscore: Copier strips `_`-prefixed answer keys from `_copier_answers`,

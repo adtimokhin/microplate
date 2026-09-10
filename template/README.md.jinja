@@ -59,6 +59,15 @@ git repo; otherwise activate it once:
 uv run pre-commit install
 uv run pre-commit run --all-files   # check everything now
 ```
+{% if claude_hooks | default(false) %}
+## Claude Code hooks
+
+`.claude/hooks/` holds vendored [Claude Code hooks](https://github.com/karanb192/claude-code-hooks)
+(MIT) wired by `.claude/settings.json`: dev-safety guardrails and auto-format.
+They need `node >=18` on `PATH` and fail open if it is missing. See
+`.claude/hooks/VENDORED.md`. Change which hooks are active with `copier update`
+(the `hook_*` answers), not by hand-editing `settings.json`.
+{% endif %}
 
 {% if docker -%}
 ## Container

@@ -1,0 +1,84 @@
+# Vendored Claude Code hooks
+
+These scripts are a **verbatim copy** of the curated subset of
+[karanb192/claude-code-hooks](https://github.com/karanb192/claude-code-hooks),
+vendored by the microservice boilerplate generator (overlay `claude_hooks`, D-041).
+
+- Upstream commit: `18b77a5c3eb1a55c098b05419c0ed3bc82301cee`
+- License: MIT, Copyright (c) 2026 Karan Bansal (see below)
+- Not installed as Claude Code plugins - the `.js` is checked in and wired
+  directly by `../settings.json`.
+
+## What is here
+
+{% if hook_guard_pack | default(false) -%}
+- `guard-pack.js` + `lib/` - PreToolUse. All six guards in one Node process:
+  block-dangerous-commands, protect-secrets, git-safety, protect-tests,
+  case-insensitive-guard, config-guard. `guard-pack.js` loads `lib/*.js` by
+  `__dirname`, so keep them together.
+{% endif -%}
+{% if hook_format_code | default(false) -%}
+- `format-code.js` - PostToolUse (Write|Edit). Runs `uv run ruff check --fix` +
+  `uv run ruff format` on Python; `npx --yes prettier --write` on
+  JS/TS/JSON/MD/YAML/HTML.
+{% endif -%}
+{% if hook_auto_stage | default(false) -%}
+- `auto-stage.js` - PostToolUse (Edit|Write). `git add`s files Claude changed.
+{% endif -%}
+{% if hook_protect_tests | default(false) -%}
+- `protect-tests.js` - PreToolUse. Standalone test-deletion / skip-xfail guard.
+{% endif -%}
+{% if hook_session_logger | default(false) -%}
+- `session-logger.js` - SessionStart / PostToolUse / SessionEnd. Markdown session
+  log under `~/.claude/sessions/` (outside this repo).
+{% endif -%}
+{% if hook_instructions_audit | default(false) -%}
+- `instructions-audit.js` - InstructionsLoaded / UserPromptSubmit / PreToolUse.
+  Flags hidden or hostile directives in instruction files.
+{% endif -%}
+
+## Requirements
+
+- **Node >= 18** on `PATH`. If node is missing the hooks fail open (Claude Code
+  logs the error and continues) - they never block your session on their own
+  absence.
+{% if hook_format_code | default(false) -%}
+- `format-code.js` additionally uses `uv` (already a project requirement) and,
+  for non-Python files, `npx prettier`.
+{% endif %}
+## Configuration
+
+Behaviour is tuned by environment variables read by the scripts, e.g.
+`HOOK_SAFETY_LEVEL` (`critical` | `high` | `strict`, default `high`),
+`HOOK_ASK_HIGH=true` to prompt instead of block, `CONFIG_GUARD_ALLOW=true`,
+`HOOK_AUDIT_WARN_ONLY=true`. Set them in `.claude/settings.json` under `"env"` or
+in your shell. See each script's header comment and the upstream READMEs.
+
+To change which hooks are wired, re-run `copier update` and toggle the `hook_*`
+answers - do not hand-edit `settings.json` (it is generated).
+
+## Upstream license
+
+```
+MIT License
+
+Copyright (c) 2026 Karan Bansal
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

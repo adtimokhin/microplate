@@ -397,3 +397,44 @@ iac:
     None: none
     "docker-compose only": compose_only
   default: "none"
+
+claude_hooks:
+  type: bool
+  help: "Vendor Claude Code hooks into .claude/ (dev-safety guardrails, auto-format)?"
+  default: true
+
+hook_guard_pack:
+  type: bool
+  help: "  guard-pack: block dangerous shell, secret reads, unsafe git, test deletion, fs-case, config tampering (PreToolUse)"
+  default: true
+  when: "claude_hooks"
+
+hook_format_code:
+  type: bool
+  help: "  format-code: run `ruff format` + `ruff check --fix` on written Python, prettier on JS/JSON/MD/YAML (PostToolUse)"
+  default: true
+  when: "claude_hooks"
+
+hook_protect_tests:
+  type: bool
+  help: "  protect-tests (standalone): block deleting / renaming-away / skip-xfail-disabling tests to fake a green suite (PreToolUse)"
+  default: true
+  when: "claude_hooks"
+
+hook_auto_stage:
+  type: bool
+  help: "  auto-stage: `git add` files after Claude edits them (PostToolUse)"
+  default: false
+  when: "claude_hooks"
+
+hook_session_logger:
+  type: bool
+  help: "  session-logger: durable markdown log of each session (files touched, bash commands) under ~/.claude/sessions (SessionStart/PostToolUse/SessionEnd)"
+  default: false
+  when: "claude_hooks"
+
+hook_instructions_audit:
+  type: bool
+  help: "  instructions-audit: scan instruction files for hidden/hostile directives, lock session on detection (InstructionsLoaded/UserPromptSubmit/PreToolUse)"
+  default: false
+  when: "claude_hooks"

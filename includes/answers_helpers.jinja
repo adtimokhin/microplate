@@ -45,6 +45,7 @@
   'langgraph',
   'langsmith',
   'otel_tracing',
+  'claude_hooks',
 ] -%}
 {%- set _gates = {
   'db_postgres': db_postgres | default(false),
@@ -68,6 +69,7 @@
   'langgraph': langgraph | default(false),
   'langsmith': langsmith | default(false),
   'otel_tracing': otel_tracing | default(false),
+  'claude_hooks': claude_hooks | default(false),
 } -%}
 {%- set _ns = namespace(ids=[]) -%}
 {%- for _oid in overlay_order -%}

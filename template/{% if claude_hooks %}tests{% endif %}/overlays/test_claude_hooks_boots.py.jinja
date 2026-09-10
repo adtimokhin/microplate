@@ -1,0 +1,91 @@
+"""claude_hooks proves-it-boots test (overlay-contract 7).
+
+Fully offline. Asserts the vendored .claude/ layout and that .claude/settings.json
+is valid JSON wiring exactly the selected hooks. `node --check` is run on each
+vendored script only when node is on PATH (skipped otherwise).
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_CLAUDE = _REPO_ROOT / ".claude"
+_HOOKS = _CLAUDE / "hooks"
+
+# (answer flag rendered in, script basename, hook events it must appear under)
+_SELECTED: list[tuple[str, list[str]]] = [
+{%- if hook_guard_pack | default(false) %}
+    ("guard-pack.js", ["PreToolUse"]),
+{%- endif %}
+{%- if hook_protect_tests | default(false) %}
+    ("protect-tests.js", ["PreToolUse"]),
+{%- endif %}
+{%- if hook_format_code | default(false) %}
+    ("format-code.js", ["PostToolUse"]),
+{%- endif %}
+{%- if hook_auto_stage | default(false) %}
+    ("auto-stage.js", ["PostToolUse"]),
+{%- endif %}
+{%- if hook_session_logger | default(false) %}
+    ("session-logger.js", ["SessionStart", "PostToolUse", "SessionEnd"]),
+{%- endif %}
+{%- if hook_instructions_audit | default(false) %}
+    ("instructions-audit.js", ["InstructionsLoaded", "UserPromptSubmit", "PreToolUse"]),
+{%- endif %}
+]
+
+_GUARD_LIB = [
+    "block-dangerous-commands.js",
+    "protect-secrets.js",
+    "git-safety.js",
+    "protect-tests.js",
+    "case-insensitive-guard.js",
+    "config-guard.js",
+]
+
+
+def test_settings_json_is_valid_and_wires_selected_hooks() -> None:
+    data = json.loads((_CLAUDE / "settings.json").read_text())
+    hooks = data.get("hooks", {})
+    flat = json.dumps(hooks)
+    for script, events in _SELECTED:
+        assert script in flat, f"{script} not wired in settings.json"
+        for event in events:
+            assert event in hooks, f"{script} expects a {event} block"
+
+
+def test_selected_scripts_are_vendored() -> None:
+    for script, _ in _SELECTED:
+        assert (_HOOKS / script).is_file(), f"missing vendored hook: {script}"
+    assert (_HOOKS / "VENDORED.md").is_file()
+{% if hook_guard_pack | default(false) %}
+    for mod in _GUARD_LIB:
+        assert (_HOOKS / "lib" / mod).is_file(), f"guard-pack lib missing: {mod}"
+{%- endif %}
+
+
+def test_unselected_scripts_are_absent() -> None:
+    present = {script for script, _ in _SELECTED}
+    for script in (
+        "guard-pack.js",
+        "format-code.js",
+        "auto-stage.js",
+        "protect-tests.js",
+        "session-logger.js",
+        "instructions-audit.js",
+    ):
+        if script not in present:
+            assert not (_HOOKS / script).exists(), f"{script} vendored but not selected"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not on PATH")
+def test_vendored_scripts_parse() -> None:
+    for js in sorted(_HOOKS.rglob("*.js")):
+        result = subprocess.run(["node", "--check", str(js)], capture_output=True, text=True)
+        assert result.returncode == 0, f"{js.name}: {result.stderr}"

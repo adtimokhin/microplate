@@ -81,6 +81,7 @@ each submap, may differ between services). A key is never both.
 | `ci` | `monorepo`: one root workflow that fans out over the service folders. `multi_repo`: one workflow per repo, same value. |
 | `iac` | Reserved (D-022); repo-level. |
 | `logging_structured` | Computed `true` (D-026); base-level, identical everywhere. |
+| `claude_hooks`, `hook_*` | Agent tooling config (D-041). Answered once; each service directory gets its own `.claude/` rendered from the shared answer. |
 | `python_version` | Computed `3.12` (D-004). |
 | `api_rest` | Computed `true` (D-018). |
 | `healthchecks` | Computed `true`. |
