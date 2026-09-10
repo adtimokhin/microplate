@@ -63,3 +63,20 @@ Out-of-scope ideas. Anything not in the scope doc lands here instead of in the b
   scope. The standing Phase 6 command is
   `combinations.py pairwise --pin tests_integration=false` (28 combos). run.py's
   runtime default is unchanged so Phase 7 can flip the axis on without a revert.
+
+## Raised during Phase 7 (owner, claude_hooks / D-041)
+
+- **The rest of karanb192/claude-code-hooks** (~15 hooks). The `claude_hooks`
+  overlay vendors only the curated dev-safety + auto-format subset (guard-pack,
+  format-code, auto-stage, protect-tests, session-logger, instructions-audit).
+  Not vendored: bounty-board, nerf-receipts, standup-autopilot, notify-permission
+  (Slack), context-hogs, dead-rules-audit, cache-tax, pr-provenance-stamp,
+  dead-end-registry, config-watch, and the six guards as individually-selectable
+  plugins. Add on request.
+- **Single repo-root `.claude/` for `monorepo`**. A multi-service render currently
+  gives every `services/<svc>/` its own `.claude/` from the shared answer. A
+  `monorepo` arguably wants one `.claude/` at the repo root instead - a topology
+  root-layer refinement.
+- **Re-vendor flow for the hooks**. Refreshing to a newer upstream commit is a
+  manual copy + bump of the SHA in `registry.yaml` / `.claude/hooks/VENDORED.md`.
+  A `scripts/revendor_claude_hooks.sh` would make it repeatable.
