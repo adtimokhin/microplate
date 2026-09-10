@@ -87,7 +87,7 @@ listed here (`api_rest`, `logging_structured`, `healthchecks`) are always on.
 | `db_redis` | `false` | Async Redis (redis-py asyncio) on a shared pool, with a read-through cache helper. |
 | `redis_pubsub` | `false` | Adds a Redis pub/sub helper inside the `db_redis` tree. Requires `db_redis`. |
 | `db_qdrant` | `false` | Async Qdrant vector store: `AsyncQdrantClient`, idempotent collection bootstrap, thin upsert/search helpers. |
-| `crud_scaffold` | `false` | An example entity plus an async repository (create/get/list/update/delete/count/exists) and a REST router at `/<entity>s`, backed by the highest-priority store you selected (`db_postgres` > `db_mongodb` > `db_redis`). Sub-options: `crud_entity` (entity name, default `item`), `crud_backend` (computed). Requires one of `db_postgres` / `db_mongodb` / `db_redis`. See the known-issue note below. |
+| `crud_scaffold` | `false` | An example entity plus an async repository (create/get/list/update/delete/count/exists) and a REST router at `/<entity>s`, backed by the highest-priority store you selected (`db_postgres` > `db_mongodb` > `db_redis`). Sub-options: `crud_entity` (entity name, default `item`), `crud_backend` (computed). Requires one of `db_postgres` / `db_mongodb` / `db_redis`. |
 
 ### Messaging
 
@@ -129,12 +129,6 @@ listed here (`api_rest`, `logging_structured`, `healthchecks`) are always on.
 | `docker` | `true` | Emit `Dockerfile` + `docker-compose.yml`. |
 | `ci` | `github_actions` | CI workflow template (`github_actions` or `none`). |
 | `license` | `proprietary` | `proprietary`, `mit`, or `apache_2_0`. |
-
-Known issue: `crud_scaffold` with the `postgres` backend currently fails its
-generated boots test (the `Depends(get_session)` sub-dependency is resolved
-before the offline repository override, and raises because the lifespan did not
-run). The `redis` and `mongodb` backends pass. Tracked for the Lead; treat
-`crud_scaffold` as experimental until it is fixed.
 
 ## Generate
 
