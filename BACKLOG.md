@@ -40,3 +40,26 @@ Out-of-scope ideas. Anything not in the scope doc lands here instead of in the b
   and optionally `db_redis` overlays - a small `repository`/`dao` module +
   an example entity + tests, so a generated service is not just a bare client.
   Schedule into Phase 7 (hardening) or a dedicated overlay-enrichment pass.
+
+## Raised during Phase 6 (VerificationEngineer, 2026-09-10)
+
+- **Base `test_app_boots.py::test_health_ready` is not integration-mode aware**.
+  With `tests_integration: true` there is no autouse mock, so readiness legitimately
+  returns 503 (can't reach `qdrant:6333` / mongo / rabbitmq from inside the pytest
+  step) and the unconditional `assert status_code == 200` fails. Make it skip or
+  expect-503 when `tests_integration` and no mock is active. Phase 7; folds with D-034.
+- **Container-mode pytest wiring** (D-031, milestone 8). `harness/run.py`'s pytest
+  step does not provision Docker containers for the generated project's own suite, so
+  every overlay's testcontainers fixture ERRORs under `tests_integration: true`.
+  `boot_under_compose` brings backing services up separately but pytest runs without
+  them. Deferred from v1 by D-031; land in Phase 7 / milestone 8.
+- **`harness/run.py` real topology orchestration**. `multi_repo` / `monorepo` combos
+  currently render as a single plain-copier tree in the gate; true multi-service
+  rendering only happens via `msvc-gen new`. The Phase 6 gate verifies topology
+  separately (VerificationEngineer confirmed a green `mono2` via `msvc-gen new`).
+  Give `run.py` real per-service + root-layer orchestration so topology combos are
+  covered in-gate. Phase 7.
+- **Phase 6 gate pins `tests_integration=false`**. That axis is Phase 7 / milestone 8
+  scope. The standing Phase 6 command is
+  `combinations.py pairwise --pin tests_integration=false` (28 combos). run.py's
+  runtime default is unchanged so Phase 7 can flip the axis on without a revert.
