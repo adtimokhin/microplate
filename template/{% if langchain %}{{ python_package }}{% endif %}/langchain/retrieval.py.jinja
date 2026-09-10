@@ -1,0 +1,56 @@
+{% if langchain_retrieval %}"""Retrieval chain over the Qdrant vector store.
+
+Uses ``langchain-qdrant`` against the same collection the embedding pipeline /
+Qdrant overlay bootstrap. Offline tests patch ``build_chat_model`` and use a
+stub retriever, so no Qdrant server and no LLM call are needed (D-013).
+"""
+
+from __future__ import annotations
+
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableLambda
+
+from {{ python_package }}.langchain.chain import build_chat_model
+
+_ANSWER_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", "Answer the question using only the context. Cite nothing outside it."),
+        ("user", "Context:\n{context}\n\nQuestion: {question}"),
+    ]
+)
+
+
+async def _retrieve(question: str) -> list[str]:
+    """Return document snippets for the question.
+
+    Real implementation wires a ``QdrantVectorStore`` retriever; the boots test
+    monkeypatches this to return a fixed list.
+    """
+    from qdrant_client import AsyncQdrantClient
+
+    from {{ python_package }}.config import get_settings
+
+    settings = get_settings()
+    client = AsyncQdrantClient(url=settings.qdrant_url)
+    dim = getattr(settings, "qdrant_vector_size", 1)
+    hits = await client.query_points(
+        collection_name=settings.qdrant_collection,
+        query=[0.0] * dim,
+        limit=4,
+    )
+    return [str((p.payload or {}).get("text", "")) for p in hits.points]
+
+
+async def retrieval_answer(question: str) -> tuple[str, list[str]]:
+    docs = await _retrieve(question)
+    ctx = "\n".join(docs)
+    chain = (
+        {"context": RunnableLambda(lambda _: ctx), "question": RunnableLambda(lambda q: q)}
+        | _ANSWER_PROMPT
+        | build_chat_model()
+        | StrOutputParser()
+    )
+    answer = await chain.ainvoke(question)
+    return answer, docs
+{% endif %}

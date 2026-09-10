@@ -264,7 +264,7 @@ options:
     health_checks: [check_mcp_server]
     ci_steps: "Adds an MCP tool-list contract test to the unit job."
     boots_test: "tests/overlays/test_mcp_server_boots.py"
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "D-007."
 
@@ -528,7 +528,7 @@ options:
     health_checks: [check_llm_openai]
     ci_steps: "No network calls. Deterministic stub tests only."
     boots_test: "tests/overlays/test_llm_openai_boots.py"
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "D-002."
 
@@ -555,7 +555,7 @@ options:
     health_checks: [check_llm_anthropic]
     ci_steps: "No network calls. Deterministic stub tests only."
     boots_test: "tests/overlays/test_llm_anthropic_boots.py"
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "D-002."
 
@@ -577,7 +577,7 @@ options:
     health_checks: []
     ci_steps: "Adds a prompt-file schema validation step to the unit job."
     boots_test: "tests/overlays/test_prompt_management_boots.py"
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "D-021: the pydantic-settings loader is base-owned. This overlay adds only the versioned prompt files plus a prompt registry/loader scoped to prompts."
 
@@ -605,7 +605,7 @@ options:
     health_checks: []
     ci_steps: "Deterministic stub tests only."
     boots_test: "tests/overlays/test_langchain_boots.py"
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "langchain-openai / langchain-anthropic deps are conditional inside the fragment on which provider is selected. langchain-qdrant only when langchain_retrieval."
 
@@ -618,7 +618,7 @@ options:
     when: "langchain"
     requires:
       - { expr: "langchain and db_qdrant", message: "LangChain retrieval requires LangChain and Qdrant (V-6)." }
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "Sub-option of langchain. Files land inside the langchain gated subtree."
 
@@ -644,7 +644,7 @@ options:
     health_checks: [check_embedding_pipeline]
     ci_steps: "Deterministic stub tests only. When tests_integration: reuses the qdrant service."
     boots_test: "tests/overlays/test_embedding_pipeline_boots.py"
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "D-014: ships an offline fastembed client (via the qdrant-client[fastembed] extra, no separate dep) and an OpenAI embedding client (reuses the openai client, no extra dep). embedding_backend selects the default; embedding_vector_size feeds the Qdrant collection bootstrap. Anthropic has no embeddings API, so it is not an option."
 
@@ -658,7 +658,7 @@ options:
     when: "embedding_pipeline"
     requires:
       - { expr: "embedding_backend != 'openai' or llm_openai", message: "OpenAI embeddings need the OpenAI client." }
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "D-014. Sub-option of embedding_pipeline. fastembed uses the qdrant-client[fastembed] extra; openai reuses the openai client."
 
@@ -672,7 +672,7 @@ options:
     validator_rule: "must be a positive integer matching the chosen backend (fastembed bge-small=384, openai 3-small=1536, 3-large=3072)"
     requires:
       - { expr: "embedding_backend != 'fastembed' or embedding_vector_size == 384", message: "fastembed bge-small produces 384-dim vectors." }
-    build_status: planned
+    build_status: implemented
     milestone: 5
     notes: "D-014. Explicit, no inference. Qdrant collection bootstrap reads it."
 
@@ -742,7 +742,7 @@ options:
     health_checks: []
     ci_steps: "Tracing disabled in tests. No network calls."
     boots_test: "tests/overlays/test_langsmith_boots.py"
-    build_status: planned
+    build_status: implemented
     milestone: 5
 
   # ---- testing -------------------------------------------------
@@ -792,7 +792,7 @@ options:
     choices: { "httpx2 MockTransport": mock_transport, "local fake server via *_BASE_URL": fake_server }
     default: mock_transport
     when: "llm_openai or llm_anthropic or langchain or langgraph"
-    build_status: planned
+    build_status: implemented
     milestone: 8
     notes: "D-013: openai 3.x / anthropic 1.x / langsmith 0.12.x run on httpx2, so respx/pytest-httpx/vcrpy do NOT intercept. Stub via httpx2 MockTransport wrapped in the SDK's own client, or redirect *_BASE_URL to a local fake server. No live calls either way. LangChain offline paths use FakeListChatModel / GenericFakeChatModel."
 

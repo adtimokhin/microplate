@@ -1,0 +1,32 @@
+"""Ingestion job: embed a batch of documents and upsert them into Qdrant.
+
+Run as a module (``python -m {{ python_package }}.embeddings.ingest``) or import
+``ingest_documents`` from a task/consumer. Batched by ``APP_EMBEDDING_BATCH_SIZE``.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from qdrant_client import models
+
+from {{ python_package }}.config import get_settings
+from {{ python_package }}.db.qdrant.client import ensure_collection, upsert
+from {{ python_package }}.embeddings.embedder import embed_texts
+
+
+async def ingest_documents(documents: list[str]) -> int:
+    """Embed and upsert. Returns the number of points written."""
+    await ensure_collection()
+    settings = get_settings()
+    written = 0
+    for start in range(0, len(documents), settings.embedding_batch_size):
+        chunk = documents[start : start + settings.embedding_batch_size]
+        vectors = embed_texts(chunk, backend=settings.embedding_backend)
+        points = [
+            models.PointStruct(id=str(uuid.uuid4()), vector=vec, payload={"text": text})
+            for text, vec in zip(chunk, vectors, strict=True)
+        ]
+        await upsert(points)
+        written += len(points)
+    return written

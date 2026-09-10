@@ -1,0 +1,37 @@
+"""Proves the embedding pipeline is wired: the ingest job runs offline against
+stubbed embedder + Qdrant, and the health check reports dimension parity."""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_embedding_ingest_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    from {{ python_package }}.db.qdrant import client as qc
+    from {{ python_package }}.embeddings.ingest import ingest_documents
+
+    async def _noop_ensure() -> None:
+        return None
+
+    upserted: list[object] = []
+
+    async def _capture_upsert(points: object) -> None:
+        upserted.append(points)
+
+    monkeypatch.setattr(qc, "ensure_collection", _noop_ensure)
+    monkeypatch.setattr("{{ python_package }}.embeddings.ingest.ensure_collection", _noop_ensure)
+    monkeypatch.setattr("{{ python_package }}.embeddings.ingest.upsert", _capture_upsert)
+
+    n = await ingest_documents(["doc one", "doc two", "doc three"])
+    assert n == 3
+    assert upserted
+
+
+@pytest.mark.asyncio
+async def test_embedding_pipeline_health() -> None:
+    from {{ python_package }}.health import check_embedding_pipeline
+
+    result = await check_embedding_pipeline()
+    assert result.name == "embedding_pipeline"
+    assert result.healthy is True

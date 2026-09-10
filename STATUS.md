@@ -356,6 +356,18 @@ _not started_
 
 _not started_
 
+## Phase 6: Combinatorial verification (NEW, D-038)
+
+Full `harness/run.py` gate across every valid overlay combination; per-overlay `docker compose up --wait` real boot; `ruff` + `mypy --strict` on every rendered combo; double-render byte-identity; `copier update` DoD per overlay. Deferred from Phases 3-5 per the owner speed directive.
+
+## Phase 7: Hardening (NEW, D-038)
+
+D-034 (generated CI mypy-checks `tests/` - type base test fixtures + 6 overlay conftest fragments); MCP-over-HTTP integration test (upstream #1367); `buf` contract-test tooling real wiring; all BACKLOG items; langgraph non-determinism review.
+
+## Phase 8: Release (NEW, D-038)
+
+DevOps: SemVer tag, push to the private repo, `copier update` CI against real tags, D-025 GitHub App token deployment, pipx publish path.
+
 ---
 
 ## Registry Architect - open questions for Lead

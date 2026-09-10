@@ -1,0 +1,23 @@
+
+
+@pytest.fixture(autouse=True)
+def embedding_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[object]:
+    """Offline embedder: ``embed_texts`` returns fixed-dimension zero vectors,
+    ``expected_dim`` matches the configured Qdrant size (D-013). No model
+    download, no OpenAI call."""
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.embeddings import embedder as emb
+
+    dim = get_settings().qdrant_vector_size
+
+    def _fake_embed(texts: list[str], backend: str = "fastembed") -> list[list[float]]:
+        return [[0.0] * dim for _ in texts]
+
+    monkeypatch.setattr(emb, "expected_dim", lambda _backend: dim)
+    monkeypatch.setattr(emb, "embed_texts", _fake_embed)
+    monkeypatch.setenv("APP_LLM_OPENAI_API_KEY", "test-key")
+    get_settings.cache_clear()
+    try:
+        yield emb
+    finally:
+        get_settings.cache_clear()

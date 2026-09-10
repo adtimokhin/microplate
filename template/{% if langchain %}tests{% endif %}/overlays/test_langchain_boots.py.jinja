@@ -1,0 +1,27 @@
+"""Proves the LangChain overlay is wired: the chain runs offline and the route
+returns the fake model's deterministic output."""
+
+from __future__ import annotations
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+
+@pytest.mark.asyncio
+async def test_langchain_summarize_chain_runs() -> None:
+    from {{ python_package }}.langchain.chain import summarize_chain
+
+    out = await summarize_chain().ainvoke({"text": "hello world, this is a test"})
+    assert out == "This is a deterministic test summary."
+
+
+@pytest.mark.asyncio
+async def test_langchain_summarize_route() -> None:
+    from {{ python_package }}.main import create_app
+
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/langchain/summarize", json={"text": "some input text here"})
+    assert resp.status_code == 200
+    assert resp.json()["summary"] == "This is a deterministic test summary."

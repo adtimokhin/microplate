@@ -1,0 +1,24 @@
+
+
+@pytest.fixture(autouse=True)
+def langchain_llm(monkeypatch: pytest.MonkeyPatch) -> Iterator[object]:
+    """Offline LangChain: the chat-model factory returns a FakeListChatModel (D-013).
+
+    No provider key, no network. Autouse so every test in a langchain-enabled
+    project gets the deterministic model.
+    """
+    from langchain_core.language_models import FakeListChatModel
+
+    from {{ python_package }}.langchain import chain as chain_mod
+
+    fake = FakeListChatModel(responses=["This is a deterministic test summary."])
+    monkeypatch.setattr(chain_mod, "build_chat_model", lambda: fake)
+    monkeypatch.setenv("APP_LLM_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("APP_LLM_ANTHROPIC_API_KEY", "test-key")
+    from {{ python_package }}.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        yield fake
+    finally:
+        get_settings.cache_clear()

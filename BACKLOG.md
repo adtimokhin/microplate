@@ -30,3 +30,13 @@ Out-of-scope ideas. Anything not in the scope doc lands here instead of in the b
 ## Resolved by decision
 
 - **Per-service `copier update` granularity for monorepo**: RESOLVED by D-036 - the orchestrated per-service render gives each `services/<svc>/` its own `.copier-answers.yml`, so `copier update` runs per service natively.
+
+## Raised during Phase 3 (owner)
+
+- **Generated data-access CRUD scaffold** (owner, 2026-09-09). Ship initial
+  code for the common data operations in the generated service: create an
+  entity, update an entity, find all, find one by id, delete one, and more
+  (count, exists, pagination). Provide it for the `db_postgres`, `db_mongodb`,
+  and optionally `db_redis` overlays - a small `repository`/`dao` module +
+  an example entity + tests, so a generated service is not just a bare client.
+  Schedule into Phase 7 (hardening) or a dedicated overlay-enrichment pass.

@@ -1,0 +1,9 @@
+
+
+@pytest.fixture(autouse=True)
+def mcp_session() -> Iterator[object]:
+    """The MCP server is fully in-process and offline; nothing to stub. The
+    fixture exists so the fixture-registry entry resolves (D-035)."""
+    from {{ python_package }}.mcp.server import get_server
+
+    yield get_server()

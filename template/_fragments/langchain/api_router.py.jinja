@@ -1,0 +1,4 @@
+    from {{ python_package }}.langchain.routes import router as _langchain_router
+
+    api_router.include_router(_langchain_router)
+

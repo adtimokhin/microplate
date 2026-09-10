@@ -1,0 +1,44 @@
+"""Embedding backends.
+
+``fastembed`` (default, D-014) runs locally via the ``qdrant-client[fastembed]``
+extra - no API key, deterministic. ``openai`` reuses the OpenAI overlay client.
+Tests patch ``embed_texts`` / ``expected_dim`` so nothing is downloaded or called.
+"""
+
+from __future__ import annotations
+
+_FASTEMBED_MODEL = "BAAI/bge-small-en-v1.5"
+_FASTEMBED_DIM = 384
+_OPENAI_MODEL = "text-embedding-3-small"
+_OPENAI_DIM = 1536
+
+
+def expected_dim(backend: str) -> int:
+    if backend == "openai":
+        return _OPENAI_DIM
+    return _FASTEMBED_DIM
+
+
+def embed_texts(texts: list[str], backend: str = "fastembed") -> list[list[float]]:
+    if backend == "openai":
+        return _embed_openai(texts)
+    return _embed_fastembed(texts)
+
+
+def _embed_fastembed(texts: list[str]) -> list[list[float]]:
+    from fastembed import TextEmbedding
+
+    model = TextEmbedding(model_name=_FASTEMBED_MODEL)
+    return [list(v) for v in model.embed(texts)]
+
+
+def _embed_openai(texts: list[str]) -> list[list[float]]:
+    import asyncio
+
+    from {{ python_package }}.llm.openai.client import get_client
+
+    async def _run() -> list[list[float]]:
+        resp = await get_client().embeddings.create(model=_OPENAI_MODEL, input=texts)
+        return [d.embedding for d in resp.data]
+
+    return asyncio.get_event_loop().run_until_complete(_run())

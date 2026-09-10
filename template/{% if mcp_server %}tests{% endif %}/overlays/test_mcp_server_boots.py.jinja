@@ -1,0 +1,31 @@
+"""Proves the MCP server is wired: it builds and registers the service's tools
+in-process (D-035). No transport, no network - the tested contract.
+
+The ``/mcp`` streamable-http mount is best-effort (mcp issue #1367) and is
+exercised in tests_integration / Phase 7, not here."""
+
+from __future__ import annotations
+
+
+def test_mcp_server_builds() -> None:
+    from {{ python_package }}.mcp.server import get_server
+
+    assert get_server() is not None
+
+
+def test_mcp_server_registers_tools() -> None:
+    from {{ python_package }}.mcp.server import list_tool_names
+
+    names = list_tool_names()
+    assert names, "no MCP tools registered - check the pinned mcp SDK registration surface"
+{% if tool_scaffold %}    assert {"echo", "add"} <= set(names)
+{% elif api_grpc %}    assert "greet" in names
+{% endif %}
+
+def test_mcp_app_imports_without_error() -> None:
+    """The api_router fragment appends the /mcp mount at import time; this
+    confirms that path does not raise (it degrades to a placeholder if the SDK
+    HTTP surface is unavailable)."""
+    from {{ python_package }}.mcp.server import mcp_asgi_app
+
+    assert mcp_asgi_app() is not None

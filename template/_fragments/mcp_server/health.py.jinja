@@ -1,0 +1,19 @@
+
+
+async def check_mcp_server() -> HealthResult:
+    """Readiness: the MCP server is built and at least one tool is registered.
+    In-process check, no transport (D-035)."""
+    from {{ python_package }}.mcp.server import list_tool_names
+
+    try:
+        names = list_tool_names()
+    except Exception as exc:  # noqa: BLE001 - readiness must not raise
+        return HealthResult(name="mcp_server", healthy=False, detail=repr(exc))
+    return HealthResult(
+        name="mcp_server",
+        healthy=bool(names),
+        detail=f"{len(names)} tool(s): {', '.join(names)}" if names else "no tools registered",
+    )
+
+
+READINESS_CHECKS.append(check_mcp_server)

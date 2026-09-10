@@ -1,0 +1,22 @@
+
+
+async def check_embedding_pipeline() -> HealthResult:
+    """Readiness: the embedder is importable and its dimension matches the
+    Qdrant collection. No network - proves the wiring, not the model."""
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.embeddings.embedder import expected_dim
+
+    try:
+        dim = expected_dim(get_settings().embedding_backend)
+    except Exception as exc:  # noqa: BLE001 - readiness must not raise
+        return HealthResult(name="embedding_pipeline", healthy=False, detail=repr(exc))
+    want = get_settings().qdrant_vector_size
+    ok = dim == want
+    return HealthResult(
+        name="embedding_pipeline",
+        healthy=ok,
+        detail="" if ok else f"embedding dim {dim} != qdrant collection dim {want}",
+    )
+
+
+READINESS_CHECKS.append(check_embedding_pipeline)

@@ -298,3 +298,13 @@ Status values: `provisional` (Lead decision, open to override), `confirmed` (agr
 - Rationale: AIComponentsEngineer hit this building `llm_openai`; it blocks the whole `llm_*` / `langsmith` set. Same class of shared-mechanism gap as D-027 / D-032 - overlays cannot fix base-owned files.
 
 - Landed 2026-09-09 (BaseTemplateEngineer-2): items 1 (pydantic.mypy plugin) + 2 (lazy `create_app` import) applied and verified (zero-overlay clean, diff is exactly those two changes; otel 7/7; llm_openai alone 8/8 ruff/mypy/pytest, double-render byte-identical). Item 3: chose the AUTOUSE-FIXTURE route - each `llm_*` overlay autouse mock fixture does `monkeypatch.setenv(...)` + `get_settings.cache_clear()` before the `app` fixture; NO `conftest_env.py` slot added. Consequence: the pre-interruption `_fragments/llm_openai/conftest_env.py.jinja` + `_fragments/llm_anthropic/conftest_env.py.jinja` are DEAD (no slot to receive them) - AIComponentsEngineer-2 deletes them. Item 4 (D-034) was NOT folded in - see D-034 update.
+
+## D-038: Lead builds directly, speed over verification, deferred checks become new phases 6-8
+
+- Date: 2026-09-09
+- Status: confirmed (owner directive)
+- Decision: The multi-agent build has been repeatedly stalled by worker session-limit failures, cold-start re-spawns, and shared-tree collisions between resumed originals and their replacements. Per the owner: the Lead now builds the remaining boilerplate components DIRECTLY, fast, with minimal inline verification (renders + imports, not the full compose-boot / mypy --strict / double-render-diff / combinatorial-harness gate). Git commits are made per phase. The main phase structure (3, 4, 5) is unchanged in scope. The verification work being skipped now is captured as new phases appended after Phase 5:
+  - **Phase 6 - Combinatorial verification**: the full `harness/run.py` gate across every valid overlay combination; per-overlay `docker compose up --wait` real-container boot; `ruff` + `mypy --strict` on every rendered combo; double-render byte-identity; `copier update` DoD per overlay.
+  - **Phase 7 - Hardening**: D-034 (generated CI mypy-checks `tests/` - type the base test fixtures + the 6 untyped overlay conftest fragments); MCP-over-HTTP integration test (upstream #1367); `buf` contract-test tooling real wiring; every BACKLOG item; the langgraph non-determinism review.
+  - **Phase 8 - Release**: DevOps - SemVer tag, push to the private repo, `copier update` CI against real tags, the D-025 GitHub App token deployment, pipx publish path.
+- Rationale: Owner priority is a complete set of boilerplate components now; correctness sweeps are batched into dedicated phases where they can run without blocking component delivery.

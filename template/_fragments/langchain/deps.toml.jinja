@@ -1,0 +1,6 @@
+    "langchain==1.4.0",
+    "langchain-core==1.6.2",
+{% if llm_openai %}    "langchain-openai==1.6.0",
+{% endif %}{% if llm_anthropic %}    "langchain-anthropic==1.7.1",
+{% endif %}{% if langchain_retrieval %}    "langchain-qdrant==1.1.0",
+{% endif %}

@@ -1,0 +1,104 @@
+"""Build an ``MCPServer`` and register the service's tools on it.
+
+The SAME handler functions that back the REST tool endpoints{% if not tool_scaffold %} / gRPC methods{% endif %} are
+registered as MCP tools, so there is one implementation (D-035).
+
+The in-process server and its tool list are the tested contract. The
+streamable-http mount (``mcp_asgi_app``) is wired via the ``api_router`` slot but
+is best-effort: mounting streamable-http onto an existing FastAPI app has an
+upstream lifespan-chaining sharp edge (mcp issue #1367), and the exact v2 SDK
+registration surface is pinned but may shift. Any failure here degrades to "MCP
+HTTP not mounted" and is reported by ``check_mcp_server`` - it never breaks app
+import. Real end-to-end HTTP wiring is a ``tests_integration`` / hardening item.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from mcp.server import MCPServer
+
+logger = logging.getLogger(__name__)
+
+_server: MCPServer | None = None
+_TOOL_NAMES: list[str] = []
+{% if tool_scaffold %}
+
+def _register_tool_scaffold(server: MCPServer) -> None:
+    from {{ python_package }}.tools.registry import registry
+
+    for spec in registry:
+
+        def _make(spec: Any) -> Any:
+            async def _call(**kwargs: Any) -> Any:
+                result = await spec.handler(spec.request_model(**kwargs))
+                return result.model_dump()
+
+            _call.__name__ = spec.name
+            _call.__doc__ = spec.description
+            return _call
+
+        _register_one(server, spec.name, spec.description, _make(spec))
+{% elif api_grpc %}
+
+def _register_grpc(server: MCPServer) -> None:
+    async def greet(name: str) -> dict[str, str]:
+        """Greet a name (mirrors the gRPC Greet method)."""
+        return {"message": f"Hello, {name}!"}
+
+    _register_one(server, "greet", "Greet a name.", greet)
+{% endif %}
+
+def _register_one(server: MCPServer, name: str, description: str, fn: Any) -> None:
+    """Register one tool, tolerating the v2 SDK's exact registration surface."""
+    registered = False
+    for attempt in ("tool_decorator", "add_tool_fn", "register_tool"):
+        try:
+            if attempt == "tool_decorator":
+                server.tool(name=name, description=description)(fn)
+            elif attempt == "add_tool_fn":
+                server.add_tool(fn, name=name, description=description)
+            else:
+                server.register_tool(name, description, fn)
+            registered = True
+            break
+        except (AttributeError, TypeError):
+            continue
+    if registered:
+        _TOOL_NAMES.append(name)
+    else:  # pragma: no cover - SDK surface changed
+        logger.warning("could not register MCP tool %r on the pinned mcp SDK", name)
+
+
+def get_server() -> MCPServer:
+    global _server
+    if _server is None:
+        _server = MCPServer("{{ service_slug }}")
+{% if tool_scaffold %}        _register_tool_scaffold(_server)
+{% elif api_grpc %}        _register_grpc(_server)
+{% endif %}    return _server
+
+
+def list_tool_names() -> list[str]:
+    get_server()
+    return sorted(_TOOL_NAMES)
+
+
+def mcp_asgi_app() -> Any:
+    """The streamable-http ASGI app for mounting under ``/mcp``. Best-effort:
+    returns a minimal placeholder if the SDK build fails (#1367)."""
+    try:
+        return get_server().streamable_http_app()
+    except Exception as exc:  # noqa: BLE001 - must not break app import
+        logger.warning("MCP streamable-http app unavailable: %r; mounting a placeholder", exc)
+        from starlette.applications import Starlette
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+
+        async def _unavailable(_request: Any) -> JSONResponse:
+            return JSONResponse(
+                {"detail": "MCP HTTP transport not wired in this build"}, status_code=501
+            )
+
+        return Starlette(routes=[Route("/{path:path}", _unavailable)])

@@ -8,10 +8,22 @@ Overlay fixture names are namespaced ``<overlay-id>_<thing>``.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+{% if llm_openai or llm_anthropic or langsmith %}import os
+{% endif %}from collections.abc import Iterator
 
 import pytest
 from starlette.testclient import TestClient
+{% if llm_openai or llm_anthropic or langsmith %}
+
+# Collection-time placeholders for required-no-default secrets (D-030 class 2,
+# D-037). ``setdefault`` never clobbers a real value; per-test fixtures still
+# override via ``monkeypatch.setenv``. Needed because some overlay boots tests
+# import the app at module scope, which builds ``Settings()`` before fixtures run.
+{% if llm_openai %}os.environ.setdefault("APP_LLM_OPENAI_API_KEY", "test-collection-placeholder")
+{% endif %}{% if llm_anthropic %}os.environ.setdefault("APP_LLM_ANTHROPIC_API_KEY", "test-collection-placeholder")
+{% endif %}{% if langsmith %}os.environ.setdefault("APP_LANGSMITH_API_KEY", "test-collection-placeholder")
+os.environ.setdefault("APP_LANGSMITH_TRACING", "false")
+{% endif %}{% endif %}
 
 
 @pytest.fixture

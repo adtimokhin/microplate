@@ -1,0 +1,6 @@
+    from starlette.routing import Mount
+
+    from {{ python_package }}.mcp.server import mcp_asgi_app
+
+    api_router.routes.append(Mount("/mcp", app=mcp_asgi_app()))
+
