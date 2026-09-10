@@ -360,7 +360,10 @@ _Phase 3 done. Next: Phase 4 (LangGraph). Lead building directly per D-038._
 
 ## Phase 5: Non-interactive mode + update path + final docs
 
-_not started_
+- **Lead** (2026-09-09): Small focused team spawned for Phases 5 + 6 (owner suggestion). Working tree committed clean at `2f614c7` on `build/all-phases` (30 keys implemented). NO shared-tree collisions this round - agents own disjoint path sets; Lead commits.
+  - **ReleaseDocsEngineer** (Phase 5): verify `copier update` path with `scripts/verify_update.sh` against the current real template for several overlay slices; polish non-interactive mode (answers-file / flag surface) + write `docs/non-interactive.md`; write the final top-level `README.md` (install, the menu, generate, run, update) + `docs/usage-examples.md` with real tested command output.
+  - **VerificationEngineer** (Phase 6): run the full `harness/run.py --mode pairwise` (all 30 implemented overlays, no flag) + targeted multi-overlay combos + `--mode singletons`; `ruff check` + `ruff format --check` + `mypy --strict` on every rendered combo; fix the known deferred nits (conftest I001/format, langgraph/langchain/mcp/embedding line-length + format, any mypy --strict gaps in the new AI/topology/langgraph overlays); `docker compose up --wait` real boot per overlay with a backing service. Report a pass/fail table; hand code fixes to the Lead or fix in-place in overlay files it owns.
+  - Lead: coordinate, integrate registry/copier.yml changes, fix cross-cutting bugs, commit per milestone.
 
 ## Phase 6: Combinatorial verification (NEW, D-038)
 
