@@ -1,0 +1,33 @@
+"""LangGraph route: POST /langgraph/run - one checkpointed graph turn per thread_id."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from {{ python_package }}.langgraph.graph import get_app_graph, message_text
+
+router = APIRouter(prefix="/langgraph", tags=["langgraph"])
+
+
+class RunRequest(BaseModel):
+    thread_id: str = Field(description="Checkpoint key; reuse it to resume a conversation.")
+    message: str = Field(description="User message for this turn.", min_length=1)
+
+
+class RunResponse(BaseModel):
+    reply: str
+    turn: int
+
+
+@router.post(
+    "/run",
+    operation_id="langgraph_run",
+    summary="Invoke the stateful graph for one turn (resumes from the thread_id checkpoint).",
+)
+async def run_route(payload: RunRequest) -> RunResponse:
+    result = await get_app_graph().ainvoke(
+        {"messages": [{"role": "user", "content": payload.message}]},
+        config={"configurable": {"thread_id": payload.thread_id}},
+    )
+    return RunResponse(reply=message_text(result["messages"][-1]), turn=result["turn"])

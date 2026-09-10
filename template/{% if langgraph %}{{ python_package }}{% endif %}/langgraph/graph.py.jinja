@@ -1,0 +1,60 @@
+"""A minimal stateful graph (D-006): two nodes, one conditional, checkpointed.
+
+State carries a running ``turn`` counter and a ``messages`` list, so re-invoking
+with the same ``thread_id`` resumes from the checkpoint. The ``respond`` node is
+deterministic text work - swap it for an LLM call (see ``llm_openai`` /
+``langchain``) for a real agent step.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Any, TypedDict
+
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
+
+_compiled: Any = None
+
+
+class GraphState(TypedDict):
+    messages: Annotated[list[dict[str, str]], add_messages]
+    turn: int
+
+
+async def _prepare(state: GraphState) -> dict[str, Any]:
+    return {"turn": state.get("turn", 0) + 1}
+
+
+def message_text(msg: Any) -> str:
+    return msg.content if hasattr(msg, "content") else msg.get("content", "")
+
+
+async def _respond(state: GraphState) -> dict[str, Any]:
+    last = message_text(state["messages"][-1]) if state.get("messages") else ""
+    reply = f"[turn {state['turn']}] {last.upper()}"
+    return {"messages": [{"role": "assistant", "content": reply}]}
+
+
+def _build() -> StateGraph:
+    g = StateGraph(GraphState)
+    g.add_node("prepare", _prepare)
+    g.add_node("respond", _respond)
+    g.add_edge(START, "prepare")
+    g.add_edge("prepare", "respond")
+    g.add_edge("respond", END)
+    return g
+
+
+async def build_app_graph() -> Any:
+    """Compile the graph with the configured checkpointer. Called once at startup."""
+    from {{ python_package }}.langgraph.checkpointer import build_checkpointer
+
+    global _compiled
+    _compiled = _build().compile(checkpointer=await build_checkpointer())
+    return _compiled
+
+
+def get_app_graph() -> Any:
+    if _compiled is None:
+        raise RuntimeError("LangGraph app is not compiled; is the application lifespan running?")
+    return _compiled

@@ -1,0 +1,7 @@
+    "langgraph==1.2.11",
+    "langgraph-checkpoint==4.2.0",
+{% if langgraph_checkpoint == 'postgres' %}    "langgraph-checkpoint-postgres==3.1.2",
+    "psycopg==3.3.5",
+    "psycopg-pool==3.3.1",
+{% endif %}{% if langgraph_checkpoint == 'redis' %}    "langgraph-checkpoint-redis==0.5.2",
+{% endif %}

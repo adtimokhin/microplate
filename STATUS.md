@@ -333,7 +333,13 @@ _agents: ALL STOOD DOWN. Phase 2 closed 2026-09-09. Phase 3 not started._
 
 - **Lead** (2026-09-09): The parked original `AIComponentsEngineer` did NOT stop on the message - it kept writing `prompt_management` fragments live, colliding with AIComponentsEngineer-2 (two designs fighting: `load_registry/set_registry` vs `prompts.reload/clear`). Force-stopped it with `TaskStop` (gone from the team, confirmed via ListAgents). **AIComponentsEngineer-2 is the sole milestone-5 owner**; it re-asserts its versions of the contested files (`llm_anthropic` summarize/routes/OVERLAY.md, `prompt_management` lifespan/conftest) and continues. `llm_openai` + `llm_anthropic` verified green (pytest 8/8/11, ruff/mypy --strict/compose clean, byte-identical). Lesson learned: a message is not a guaranteed park - use `TaskStop` on a resumed original the moment a `-2` is spawned.
 
-_agents running: AIComponentsEngineer-2 (sole milestone-5 owner), TopologyEngineer-2 (topology per D-036), RegistryArchitect-3 (reactive). BaseTemplateEngineer-2 done. Original AIComponentsEngineer force-stopped; other originals idle/parked. NO Testing Engineer this phase. Phase 2 complete + closed above._
+- **Lead** (2026-09-09): Agent team repeatedly stalled by session-limit failures + collisions (D-038). Lead took over direct development. **PHASE 3 COMPLETE + COMMITTED** (branch `build/all-phases`):
+  - Milestone 5 (commit `1f5c4ab`): `llm_openai`, `llm_anthropic`, `prompt_management`, `langchain` (+ `langchain_retrieval`), `embedding_pipeline` (+ `embedding_backend`, `embedding_vector_size`), `langsmith`, `mcp_server` - all `build_status: implemented`. AI-heavy render (10 overlays + otel): `copier copy` OK, `uv lock` 131 pkgs, **pytest 27 passed**, `create_app()` OK, double-render byte-identical, `ruff check` clean. Base `tests/conftest.py.jinja` seeds collection-time placeholders for class-2 secrets (D-037). D-035 (mcp in-process tested, HTTP best-effort). Deferred: full mypy --strict sweep + 1 conftest format nit -> Phase 6.
+  - Milestone 6 (commit `39a3b74`): `topology` (single/monorepo/multi_repo per D-036), `service_names`, `services_config` (schema V-15..V-20), `transport_grpc`, `transport_rabbitmq`, `tests_contract` - all `implemented`. monorepo 2-svc render: api 9 / worker 10 pytest pass, root compose config valid; multi_repo 2-svc: api 12 pass. `single` output unchanged.
+  - 28 keys implemented. `copier.yml` regenerated + `--check` in sync, `validate_registry.py` ok.
+  - All Phase 3 agents (AIComponentsEngineer*, TopologyEngineer*, RegistryArchitect*, BaseTemplateEngineer-2) stood down / force-stopped. No Testing Engineer was used.
+
+_Phase 3 done. Next: Phase 4 (LangGraph). Lead building directly per D-038._
 
 - **TopologyEngineer** (2026-09-09): milestone 6 started. Two deliverables done, one blocker raised.
   - **`services_config` submap schema drafted**: `docs/services-config-schema.md` (D-017 open item). Decisions:

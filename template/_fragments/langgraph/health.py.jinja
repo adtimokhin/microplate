@@ -1,0 +1,14 @@
+
+
+async def check_langgraph() -> HealthResult:
+    """Readiness: the compiled graph is on app state. No graph run - proves wiring."""
+    from {{ python_package }}.langgraph.graph import get_app_graph
+
+    try:
+        get_app_graph()
+    except RuntimeError as exc:
+        return HealthResult(name="langgraph", healthy=False, detail=repr(exc))
+    return HealthResult(name="langgraph", healthy=True, detail="graph compiled")
+
+
+READINESS_CHECKS.append(check_langgraph)

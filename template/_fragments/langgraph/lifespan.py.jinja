@@ -1,0 +1,16 @@
+
+
+async def _langgraph_startup(app: FastAPI) -> None:
+    from {{ python_package }}.langgraph.graph import build_app_graph
+
+    app.state.langgraph = await build_app_graph()
+
+
+async def _langgraph_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.langgraph.checkpointer import close_checkpointer
+
+    await close_checkpointer()
+
+
+STARTUP_HOOKS.append(_langgraph_startup)
+SHUTDOWN_HOOKS.append(_langgraph_shutdown)

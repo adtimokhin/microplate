@@ -701,7 +701,7 @@ options:
     health_checks: [check_langgraph]
     ci_steps: "Deterministic offline tests with stubbed LLM responses."
     boots_test: "tests/overlays/test_langgraph_boots.py"
-    build_status: planned
+    build_status: implemented
     milestone: 7
     notes: "Minimal in v1 (D-006): one graph, one example node, one route, checkpoint to selected store. Fragment ships only the checkpoint dep for the selected store: langgraph-checkpoint-postgres + psycopg (psycopg3, separate from the db_postgres asyncpg driver) when postgres; langgraph-checkpoint-redis when redis. D-015: redis path needs redis-stack, see langgraph_checkpoint."
 
@@ -715,7 +715,7 @@ options:
     when: "langgraph"
     requires:
       - { expr: "(langgraph_checkpoint == 'postgres' and db_postgres) or (langgraph_checkpoint == 'redis' and db_redis)", message: "The chosen LangGraph checkpoint store must itself be enabled (V-9)." }
-    build_status: planned
+    build_status: implemented
     milestone: 7
     notes: "D-015: when 'redis', image_resolution rule IR-1 resolves the db_redis compose image to redis/redis-stack (RedisJSON + RediSearch). V-9 forces db_redis on in this case."
 

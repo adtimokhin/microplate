@@ -1,0 +1,15 @@
+
+
+@pytest.fixture(autouse=True)
+def langgraph_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[object]:
+    """Offline LangGraph: an in-memory checkpointer stands in for {{ langgraph_checkpoint }}
+    (D-006), so no DB and no LLM call. Autouse so the whole suite gets it."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from {{ python_package }}.langgraph import checkpointer as cp
+
+    async def _mem() -> InMemorySaver:
+        return InMemorySaver()
+
+    monkeypatch.setattr(cp, "build_checkpointer", _mem)
+    yield cp

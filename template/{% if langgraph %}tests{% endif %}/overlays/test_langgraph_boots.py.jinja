@@ -1,0 +1,36 @@
+"""Proves the LangGraph overlay is wired: the graph compiles with an in-memory
+checkpointer, runs offline, and resumes turn state across invocations (D-006)."""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_langgraph_runs_and_checkpoints() -> None:
+    from {{ python_package }}.langgraph.graph import build_app_graph
+
+    graph = await build_app_graph()
+    cfg = {"configurable": {"thread_id": "t1"}}
+
+    r1 = await graph.ainvoke({"messages": [{"role": "user", "content": "hello"}]}, config=cfg)
+    assert r1["turn"] == 1
+    assert r1["messages"][-1].content == "[turn 1] HELLO"
+
+    r2 = await graph.ainvoke({"messages": [{"role": "user", "content": "again"}]}, config=cfg)
+    assert r2["turn"] == 2  # resumed from the checkpoint
+
+
+@pytest.mark.asyncio
+async def test_langgraph_run_route() -> None:
+    from httpx import ASGITransport, AsyncClient
+
+    from {{ python_package }}.main import create_app
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/langgraph/run", json={"thread_id": "r1", "message": "hi"})
+    assert resp.status_code == 200
+    assert resp.json()["reply"] == "[turn 1] HI"

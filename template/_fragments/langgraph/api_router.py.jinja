@@ -1,0 +1,4 @@
+    from {{ python_package }}.langgraph.routes import router as _langgraph_router
+
+    api_router.include_router(_langgraph_router)
+
