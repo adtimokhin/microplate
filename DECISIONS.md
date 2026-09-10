@@ -320,3 +320,16 @@ Status values: `provisional` (Lead decision, open to override), `confirmed` (agr
   - Tests: an autouse `conftest.py` fragment swaps `get_repository` for the in-memory store; `tests/overlays/test_crud_scaffold_boots.py` drives the full HTTP create/get/count/list/patch/delete/404 lifecycle over `ASGITransport`, fully offline.
   - `includes/answers_helpers.jinja` `overlay_order` list + `_gates` dict updated (they carry their own hardcoded mirror of `registry.yaml`). `PER_SERVICE_KEYS` (validate_registry.py) + `PER_SERVICE_ALLOWED_KEYS` (topology.py) gained the three crud keys so a per-service submap can select it under `monorepo` / `multi_repo`.
 - Rationale: Owner asked for "initial code for the microservices to interact with data - adding, updating, finding all, finding one by id, deleting - for postgres, mongo and maybe redis" with "relevant endpoints that match the entity name". This is the minimal working slice. Richer operations (filtering, pagination cursors, bulk ops, soft-delete, search) stay in BACKLOG for a Phase 7 pass.
+
+## D-040: every generated service ships a formatter + a commit-blocking pre-commit hook, by default
+
+- Date: 2026-09-09
+- Status: confirmed (owner directive)
+- Decision: The base template (unconditional, no registry key) now ships:
+  1. `[tool.ruff.format]` in `pyproject.toml` (`docstring-code-format = true`) - ruff is the formatter, standard made explicit.
+  2. `.pre-commit-config.yaml` with two `repo: local` / `language: system` hooks - `ruff format` and `ruff check --fix` - that shell out to the project's own pinned ruff (from `uv.lock`). No external hook repo, no `rev` to keep in sync with the `ruff==` pin, no network fetch, no build step. The hook, `pyproject.toml`, and CI are guaranteed to use the identical ruff.
+  3. `pre-commit==4.3.0` in the `dev` dependency group.
+  4. A copy-only `_task` (argv, D-012): `uv run python -c "... subprocess.call(['pre-commit','install']) if os.path.isdir('.git') else 0"` - activates the hook when generating into an existing git repo, silent no-op otherwise. Plain `install` (not `--install-hooks`), so it needs no network and cannot fail generation; hook envs are trivial for `language: system`. Touches `.git/hooks/`, never the rendered tree, so double-render byte-identity holds.
+  5. README "Git hooks" section: `uv run pre-commit install` for the standalone-then-`git init` flow.
+- Rationale: Owner: "add to the microservices code formatters and a git action that prevents committing if the code format is not matching the standard." CI already ran `ruff format --check` + `ruff check`; this adds the local gate so a mis-formatted commit is stopped before it is made. Verified end-to-end: a mis-formatted staged file is blocked, a clean one passes; `ruff` / `mypy --strict` / `pytest` (7) green on a `db_postgres`+`crud_scaffold` render; double-render byte-identical; `pre-commit==4.3.0` resolves in `uv lock`.
+- Not chosen: the `astral-sh/ruff-pre-commit` + `pre-commit/pre-commit-hooks` remote-repo form. It needs a network fetch (and a Python build env for `pre-commit-hooks`) on first run, which is fragile offline and would drift from the `ruff==` pin. The `repo: local` form is strictly better for this codebase's offline/deterministic discipline.

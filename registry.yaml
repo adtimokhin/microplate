@@ -34,6 +34,9 @@ tasks:
   - command: ["uv", "lock"]
     when: "{{ _copier_operation == 'copy' }}"
     comment: "Resolve the lockfile once, on copy only (overlay-contract 4.4a). The one sanctioned non-deterministic step: reads the live index."
+  - command: ["uv", "run", "python", "-c", "import os,subprocess,sys; sys.exit(subprocess.call(['pre-commit','install']) if os.path.isdir('.git') else 0)"]
+    when: "{{ _copier_operation == 'copy' }}"
+    comment: "Activate the format/lint pre-commit hook, but only when the target is already a git repo (no-op otherwise; run `uv run pre-commit install` yourself after `git init`). Plain `install` writes .git/hooks/pre-commit with no network/build; hook envs build lazily on first commit. copy-only, argv-only (D-012), touches .git/hooks not the rendered tree so double-render stays byte-identical."
 
 # Frozen, append-only. Only legal iteration order for shared-file assembly (overlay-contract 4.2).
 overlay_order:

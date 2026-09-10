@@ -39,11 +39,25 @@ the response and attached to every log line.
 uv run pytest
 ```
 
-## Lint and type-check
+## Lint, format, and type-check
 
 ```bash
+uv run ruff format .        # apply the formatter
+uv run ruff format --check . # verify only (what CI runs)
 uv run ruff check .
 uv run mypy
+```
+
+## Git hooks
+
+A pre-commit hook runs `ruff format` and `ruff check` on staged Python and
+**blocks the commit** if anything is not formatted or lints dirty (same ruff as
+CI, from `uv.lock`). It is installed for you when you generate into an existing
+git repo; otherwise activate it once:
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files   # check everything now
 ```
 
 {% if docker -%}

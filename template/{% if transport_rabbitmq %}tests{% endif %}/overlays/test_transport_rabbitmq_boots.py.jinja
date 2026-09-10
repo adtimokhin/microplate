@@ -6,8 +6,16 @@ and its naming / settings wiring is correct.
 
 from __future__ import annotations
 
+import pytest
+
 from {{ python_package }}.config import get_settings
 from {{ python_package }}.transport.rabbitmq import connect, consume, inbox_queue_name, publish
+
+_TRANSPORT_ENV = (
+    "APP_TRANSPORT_RABBITMQ_URL",
+    "APP_TRANSPORT_EXCHANGE",
+    "APP_TRANSPORT_RABBITMQ_PREFETCH",
+)
 
 
 def test_bus_surface_is_importable() -> None:
@@ -24,7 +32,11 @@ def test_inbox_queue_name_uses_service_name() -> None:
         get_settings.cache_clear()
 
 
-def test_transport_settings_defaults() -> None:
+def test_transport_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Assert the shipped defaults, isolated from any APP_TRANSPORT_* the runner
+    # (or a copied .env) may have exported.
+    for var in _TRANSPORT_ENV:
+        monkeypatch.delenv(var, raising=False)
     get_settings.cache_clear()
     try:
         settings = get_settings()

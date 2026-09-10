@@ -32,6 +32,8 @@ _skip_if_exists:
 _tasks:
   - command: ["uv", "lock"]
     when: "{{ _copier_operation == 'copy' }}"
+  - command: ["uv", "run", "python", "-c", "import os,subprocess,sys; sys.exit(subprocess.call(['pre-commit','install']) if os.path.isdir('.git') else 0)"]
+    when: "{{ _copier_operation == 'copy' }}"
 
 # ---- base: Service basics ------------------------------------------
 service_name:

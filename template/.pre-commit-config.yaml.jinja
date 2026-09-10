@@ -1,0 +1,28 @@
+# Git pre-commit hook. Blocks a commit whose staged Python is not formatted /
+# linted to this project's standard.
+#
+#   uv sync                              # installs pre-commit (dev group)
+#   uv run pre-commit install            # activate the hook (done for you on
+#                                        # generate when the target is a git repo)
+#   uv run pre-commit run --all-files    # check the whole tree now
+#
+# These are `repo: local` / `language: system` hooks: they shell out to the
+# project's own pinned ruff (from uv.lock), so the hook, `pyproject.toml` and CI
+# are guaranteed to use the identical ruff version, with no network fetch, no
+# build step, and no `rev` to keep in sync.
+minimum_pre_commit_version: "3.5.0"
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+        require_serial: true

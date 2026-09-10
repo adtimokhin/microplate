@@ -160,3 +160,32 @@ greedy is enough for the skeleton and stays trivially deterministic.
   pairwise and full runs exercise real overlay selection.
 - `uv` in this environment is older than the registry pin (`0.12.10`); the
   skeleton works with it but CI pins the newer one.
+
+## Phase 6 gate (combinatorial verification)
+
+The authoritative Phase 6 command is a pinned pairwise run:
+
+```
+uv run harness/combinations.py pairwise --pin tests_integration=false --out .harness-out/phase6-pw
+uv run python harness/run.py --manifest .harness-out/phase6-pw --report-dir .harness-out/phase6-gate
+```
+
+Run it against a committed, quiescent tree (no concurrent edits to `template/`,
+`registry.yaml`, `copier.yml` or `includes/` while it renders — the double-render
+determinism check will spuriously fail if a fragment changes between render 1 and
+render 2). Docker must be up so the compose-boot step exercises the datastore /
+broker stacks for real.
+
+`tests_integration=false` is pinned deliberately: the `tests_integration=true`
+branch renders the `testcontainers`-backed overlay fixtures and an
+integration-mode readiness path that are **Phase 7 / milestone 8 scope**
+(container-mode pytest wiring, D-031; and the base
+`tests/test_app_boots.py::test_health_ready` assertion is not yet
+integration-mode-aware). Those combinations fail today by construction, not
+because of an overlay defect. Phase 7 flips the axis back on after that work
+lands — nothing here needs reverting, `run.py`'s own defaults are unchanged.
+
+For the deferred-axis picture, a full unpinned `run.py --mode pairwise` is still
+useful: it additionally folds in the `singletons` set and every
+`tests_integration=true` pair, so it shows exactly which combinations are blocked
+on Phase 7.

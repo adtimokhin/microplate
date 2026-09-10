@@ -28,6 +28,7 @@ dev = [
     "httpx==0.28.1",
     "ruff==0.16.6",
     "mypy==2.3.1",
+    "pre-commit==4.3.0",
 {{ include_slot('dev-deps.toml') }}]
 
 [build-system]
@@ -43,6 +44,9 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.12"

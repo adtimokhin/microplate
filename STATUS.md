@@ -468,3 +468,11 @@ full 33-overlay implemented matrix.
   template must carry the bit). Committed.
 - Phase 7 backlog items recorded in BACKLOG.md (`a1769e0`).
 - Gate reports on disk (gitignored): `.harness-out/phase6-gate/` (Run A), `.harness-out/phase6-gate2/` (Run B).
+
+- **Lead** (2026-09-09): formatter + commit-blocking pre-commit hook in every generated service, by default (D-040, owner directive).
+  - New base file `template/.pre-commit-config.yaml.jinja` - two `repo: local` / `language: system` hooks (`ruff format`, `ruff check --fix`) that call the project's own pinned ruff. No remote hook repo, no `rev` sync, no network.
+  - `template/pyproject.toml.jinja`: `[tool.ruff.format]` block (`docstring-code-format = true`); `pre-commit==4.3.0` added to the `dev` group.
+  - `registry.yaml` `tasks:`: copy-only task `pre-commit install` guarded on `os.path.isdir('.git')` (argv one-liner, no shell). copier.yml regenerated.
+  - `template/README.md.jinja`: "Git hooks" + expanded "Lint, format, and type-check" section.
+  - Verified: mis-formatted staged file -> commit blocked; clean file -> commit passes. `ruff check` / `ruff format --check` / `mypy --strict` / `pytest` (7) green on a `db_postgres`+`crud_scaffold` render. Double-render byte-identical (rendered tree; `.venv`/`.copier-answers.yml` excluded). `pre-commit==4.3.0` resolves in `uv lock` (56 pkgs).
+  - Also committed VerificationEngineer's two Phase 6 working-tree edits: `test_transport_rabbitmq_boots.py` env-isolation hardening (monorepo `test_transport_settings_defaults` was reading leaked `APP_TRANSPORT_*`), and the `harness/README.md` Phase 6 gate section.
