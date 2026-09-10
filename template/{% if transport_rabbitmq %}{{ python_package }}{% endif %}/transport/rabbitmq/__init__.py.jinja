@@ -1,0 +1,20 @@
+"""RabbitMQ inter-service transport: one shared topic exchange.
+
+Every service in a ``transport_rabbitmq`` mesh publishes to and/or consumes from
+one shared, durable topic exchange (``APP_TRANSPORT_EXCHANGE``). Routing keys are
+free-form dotted strings, conventionally ``<target-or-domain>.<event>``. A
+consumer binds its own durable queue (``<service_name>.inbox``) to the patterns
+it cares about.
+
+This is deliberately thinner than the ``messaging_rabbitmq`` overlay (which is a
+service's own work queue): here the exchange is the mesh's shared event bus.
+"""
+
+from {{ python_package }}.transport.rabbitmq.bus import (
+    connect,
+    consume,
+    inbox_queue_name,
+    publish,
+)
+
+__all__ = ["connect", "consume", "inbox_queue_name", "publish"]

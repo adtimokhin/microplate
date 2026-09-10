@@ -1,0 +1,17 @@
+
+
+async def check_db_postgres() -> HealthResult:
+    """Readiness probe: ``SELECT 1`` against the configured database."""
+    from sqlalchemy import text
+
+    from {{ python_package }}.db.postgres.engine import get_engine
+
+    try:
+        async with get_engine().connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:  # readiness must never raise
+        return HealthResult(name="db_postgres", healthy=False, detail=repr(exc))
+    return HealthResult(name="db_postgres", healthy=True)
+
+
+READINESS_CHECKS.append(check_db_postgres)

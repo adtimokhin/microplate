@@ -1,0 +1,17 @@
+"""PostgreSQL overlay: async SQLAlchemy 2.x engine, session factory, Alembic env.
+
+Public surface:
+
+* :func:`~{{ python_package }}.db.postgres.engine.get_engine` - the process-wide
+  :class:`~sqlalchemy.ext.asyncio.AsyncEngine`, created by the app lifespan.
+* :func:`~{{ python_package }}.db.postgres.session.get_session` - a FastAPI
+  dependency yielding one :class:`AsyncSession` per request.
+* :class:`~{{ python_package }}.db.postgres.models.Base` - declarative base that
+  Alembic autogenerate reflects against.
+"""
+
+from {{ python_package }}.db.postgres.engine import get_engine, get_session_factory
+from {{ python_package }}.db.postgres.models import Base
+from {{ python_package }}.db.postgres.session import get_session
+
+__all__ = ["Base", "get_engine", "get_session", "get_session_factory"]

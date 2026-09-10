@@ -1,0 +1,16 @@
+
+
+async def _db_redis_startup(app: FastAPI) -> None:
+    from {{ python_package }}.db.redis.client import init_client
+
+    app.state.db_redis = init_client()
+
+
+async def _db_redis_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.db.redis.client import close_client
+
+    await close_client()
+
+
+STARTUP_HOOKS.append(_db_redis_startup)
+SHUTDOWN_HOOKS.append(_db_redis_shutdown)

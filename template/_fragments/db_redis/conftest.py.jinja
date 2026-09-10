@@ -1,0 +1,50 @@
+
+
+{% if tests_integration %}@pytest.fixture
+def redis_container() -> Iterator[str]:
+    """Real Redis 8.0 via testcontainers. Yields a connection URL."""
+    from testcontainers.redis import RedisContainer
+
+    with RedisContainer("redis:8.0") as container:
+        host = container.get_container_host_ip()
+        port = container.get_exposed_port(6379)
+        yield f"redis://{host}:{port}/0"
+
+
+@pytest.fixture
+def redis_client(redis_container: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Point settings at the live container and reset the settings cache."""
+    from {{ python_package }}.config import get_settings
+
+    monkeypatch.setenv("APP_REDIS_URL", redis_container)
+    get_settings.cache_clear()
+    try:
+        yield redis_container
+    finally:
+        get_settings.cache_clear()
+{% else %}@pytest.fixture(autouse=True)
+def redis_client(monkeypatch: pytest.MonkeyPatch) -> object:
+    """Mock-mode client: a spec'd AsyncMock whose ``PING`` succeeds.
+
+    Autouse so every test sees a stubbed, healthy datastore with no container.
+    ``init_client`` is patched so the app lifespan installs this fake;
+    ``isinstance(fake, redis.asyncio.Redis)`` still holds because the mock is
+    spec'd.
+    """
+    from unittest.mock import AsyncMock
+
+    import redis.asyncio as redis
+
+    from {{ python_package }}.db.redis import client as client_mod
+
+    fake_client = AsyncMock(spec=redis.Redis)
+    fake_client.ping = AsyncMock(return_value=True)
+    fake_client.aclose = AsyncMock(return_value=None)
+
+    def _fake_init() -> object:
+        client_mod._client = fake_client
+        return fake_client
+
+    monkeypatch.setattr(client_mod, "init_client", _fake_init)
+    return fake_client
+{% endif %}

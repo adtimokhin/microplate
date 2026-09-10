@@ -1,0 +1,20 @@
+"""Client helper for the bidi ``ChatService`` example."""
+
+# grpcio ships no type stubs / py.typed marker.
+# mypy: disable-error-code="import-untyped, no-untyped-call"
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
+from {{ python_package }}.grpc._pb.streaming.v1 import chat_pb2_grpc
+from {{ python_package }}.grpc.client import open_channel
+
+
+@asynccontextmanager
+async def chat_stub(target: str | None = None) -> AsyncIterator[Any]:
+    """Yield a ``ChatServiceStub`` bound to a fresh channel (local server by default)."""
+
+    async with open_channel(target) as channel:
+        yield chat_pb2_grpc.ChatServiceStub(channel)

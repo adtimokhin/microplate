@@ -1,0 +1,24 @@
+
+
+async def check_llm_anthropic() -> HealthResult:
+    """Readiness probe: the client is built and an API key is configured.
+
+    No network round-trip - an LLM call on every readiness poll would burn
+    tokens and add latency. This proves the wiring, not the upstream's health.
+    """
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.llm.anthropic.client import get_client
+
+    try:
+        get_client()
+    except RuntimeError as exc:  # lifespan has not run
+        return HealthResult(name="llm_anthropic", healthy=False, detail=repr(exc))
+    configured = bool(get_settings().llm_anthropic_api_key)
+    return HealthResult(
+        name="llm_anthropic",
+        healthy=configured,
+        detail="api key configured" if configured else "APP_LLM_ANTHROPIC_API_KEY is empty",
+    )
+
+
+READINESS_CHECKS.append(check_llm_anthropic)

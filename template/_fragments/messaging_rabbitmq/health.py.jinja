@@ -1,0 +1,29 @@
+
+
+_messaging_rabbitmq_client: object | None = None
+
+
+def register_messaging_rabbitmq(client: object | None) -> None:
+    """Called by the lifespan hook so the zero-arg check can reach the client."""
+
+    global _messaging_rabbitmq_client
+    _messaging_rabbitmq_client = client
+
+
+async def check_messaging_rabbitmq() -> HealthResult:
+    from {{ python_package }}.messaging import RabbitMQ
+
+    name = "messaging_rabbitmq"
+    client = _messaging_rabbitmq_client
+    if not isinstance(client, RabbitMQ):
+        return HealthResult(name=name, healthy=False, detail="client not registered")
+    try:
+        await client.connect()  # idempotent: reconnects if the broker came back
+        channel = await client.connection.channel()
+        await channel.close()
+    except Exception as exc:  # noqa: BLE001 - a readiness check must never raise
+        return HealthResult(name=name, healthy=False, detail=repr(exc))
+    return HealthResult(name=name, healthy=client.is_healthy)
+
+
+READINESS_CHECKS.append(check_messaging_rabbitmq)

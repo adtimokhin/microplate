@@ -1,0 +1,16 @@
+
+
+async def _llm_anthropic_startup(app: FastAPI) -> None:
+    from {{ python_package }}.llm.anthropic.client import init_client
+
+    app.state.llm_anthropic = init_client()
+
+
+async def _llm_anthropic_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.llm.anthropic.client import close_client
+
+    await close_client()
+
+
+STARTUP_HOOKS.append(_llm_anthropic_startup)
+SHUTDOWN_HOOKS.append(_llm_anthropic_shutdown)

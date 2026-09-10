@@ -1,0 +1,14 @@
+
+
+async def check_db_redis() -> HealthResult:
+    """Readiness probe: ``PING``."""
+    from {{ python_package }}.db.redis.client import get_client
+
+    try:
+        pong = bool(await get_client().ping())
+    except Exception as exc:  # readiness must never raise
+        return HealthResult(name="db_redis", healthy=False, detail=repr(exc))
+    return HealthResult(name="db_redis", healthy=pong, detail="" if pong else "PING returned false")
+
+
+READINESS_CHECKS.append(check_db_redis)

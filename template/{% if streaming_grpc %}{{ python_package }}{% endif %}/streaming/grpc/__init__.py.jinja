@@ -1,0 +1,31 @@
+"""gRPC bidi-streaming overlay.
+
+Adds ``streaming.v1.ChatService`` to the co-hosted gRPC server from the
+``api_grpc`` overlay. Importing this package registers the servicer through
+``api_grpc``'s ``register_servicer`` hook; ``api_grpc``'s ``server.py`` imports
+it on load when this overlay is selected. See ``overlays/streaming_grpc/
+OVERLAY.md``.
+"""
+
+# chat_pb2_grpc is committed generated code without type information.
+# mypy: disable-error-code="no-untyped-call"
+from __future__ import annotations
+
+from typing import Any
+
+from {{ python_package }}.grpc._pb.streaming.v1 import chat_pb2_grpc
+from {{ python_package }}.grpc.server import register_servicer
+
+from .client import chat_stub
+from .service import ChatServicer
+
+CHAT_SERVICE_NAME = "streaming.v1.ChatService"
+
+
+def _add_chat_servicer(server: Any) -> None:
+    chat_pb2_grpc.add_ChatServiceServicer_to_server(ChatServicer(), server)
+
+
+register_servicer(_add_chat_servicer, CHAT_SERVICE_NAME)
+
+__all__ = ["CHAT_SERVICE_NAME", "ChatServicer", "chat_stub"]

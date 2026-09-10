@@ -1,0 +1,15 @@
+"""Tool scaffold overlay (D-007, OpenAPI half).
+
+Function-call-shaped FastAPI routes with function-calling-tuned OpenAPI. The
+lifespan startup hook (``_fragments/tool_scaffold/lifespan.py.jinja``) mounts the
+router, since the base ``api/router.py`` is not overlay-editable. See
+``overlays/tool_scaffold/OVERLAY.md``.
+"""
+
+from __future__ import annotations
+
+from .examples import add, echo  # noqa: F401  - import registers the example tools
+from .registry import ToolRegistry, ToolSpec, registry
+from .routes import router
+
+__all__ = ["ToolRegistry", "ToolSpec", "registry", "router"]

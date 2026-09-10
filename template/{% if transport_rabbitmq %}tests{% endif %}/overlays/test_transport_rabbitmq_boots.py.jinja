@@ -1,0 +1,35 @@
+"""transport_rabbitmq proves-it-boots test (overlay-contract 7).
+
+Offline: no broker connection is opened. Asserts the shared-bus module imports
+and its naming / settings wiring is correct.
+"""
+
+from __future__ import annotations
+
+from {{ python_package }}.config import get_settings
+from {{ python_package }}.transport.rabbitmq import connect, consume, inbox_queue_name, publish
+
+
+def test_bus_surface_is_importable() -> None:
+    assert callable(connect)
+    assert callable(consume)
+    assert callable(publish)
+
+
+def test_inbox_queue_name_uses_service_name() -> None:
+    get_settings.cache_clear()
+    try:
+        assert inbox_queue_name() == f"{get_settings().service_name}.inbox"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_transport_settings_defaults() -> None:
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+        assert settings.transport_exchange == "svc.events"
+        assert settings.transport_rabbitmq_url.startswith("amqp://")
+        assert settings.transport_rabbitmq_prefetch == 10
+    finally:
+        get_settings.cache_clear()

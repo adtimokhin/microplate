@@ -1,0 +1,27 @@
+"""messaging_rabbitmq proves-it-boots test (overlay-contract 7).
+
+Runs offline: ``rabbitmq_channel`` installs a fake robust connection, so entering
+the real app lifespan opens no socket. Exercises the real wiring path
+(lifespan startup -> RabbitMQ.start -> declare_topology -> app.state + health
+holder).
+"""
+
+from __future__ import annotations
+
+from {{ python_package }}.health import check_messaging_rabbitmq
+from {{ python_package }}.lifespan import lifespan
+from {{ python_package }}.main import app
+from {{ python_package }}.messaging import RabbitMQ
+
+
+async def test_messaging_rabbitmq_boots(rabbitmq_channel) -> None:
+    async with lifespan(app):
+        client = getattr(app.state, "rabbitmq", None)
+        assert isinstance(client, RabbitMQ), "rabbitmq client missing from app.state"
+        assert client.is_healthy
+
+        result = await check_messaging_rabbitmq()
+        assert result.healthy, result
+
+    # shutdown hook ran: the health holder is cleared.
+    assert not (await check_messaging_rabbitmq()).healthy

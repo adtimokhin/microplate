@@ -1,0 +1,18 @@
+
+
+async def _prompt_management_startup(app: FastAPI) -> None:
+    from {{ python_package }}.prompts.registry import load_registry, set_registry
+
+    registry = load_registry()
+    set_registry(registry)
+    app.state.prompt_registry = registry
+
+
+async def _prompt_management_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.prompts.registry import PromptRegistry, set_registry
+
+    set_registry(PromptRegistry())
+
+
+STARTUP_HOOKS.append(_prompt_management_startup)
+SHUTDOWN_HOOKS.append(_prompt_management_shutdown)

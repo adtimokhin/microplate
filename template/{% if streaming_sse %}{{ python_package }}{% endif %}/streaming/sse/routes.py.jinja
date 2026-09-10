@@ -1,0 +1,36 @@
+"""Server-Sent Events example routes.
+
+``sse-starlette``'s ``EventSourceResponse`` takes an async generator of events
+and handles the SSE framing, keep-alive pings, and client-disconnect cleanup.
+The example endpoint streams ``count`` numbered ticks then closes the stream.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Query, Request
+from sse_starlette.sse import EventSourceResponse
+
+router = APIRouter(tags=["streaming"])
+
+
+async def _tick_events(request: Request, count: int, delay: float) -> AsyncIterator[dict[str, str]]:
+    for index in range(count):
+        if await request.is_disconnected():
+            break
+        yield {"event": "tick", "id": str(index), "data": f"tick {index}"}
+        await asyncio.sleep(delay)
+    yield {"event": "done", "data": "stream complete"}
+
+
+@router.get("/stream/sse")
+async def stream_sse(
+    request: Request,
+    count: int = Query(default=5, ge=1, le=100),
+    delay: float = Query(default=0.0, ge=0.0, le=5.0),
+) -> EventSourceResponse:
+    """Stream ``count`` ``tick`` events, then a final ``done`` event."""
+
+    return EventSourceResponse(_tick_events(request, count, delay))

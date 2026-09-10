@@ -1,0 +1,34 @@
+"""streaming_grpc proves-it-boots test (overlay-contract 7).
+
+Runs offline: the co-hosted gRPC server (api_grpc overlay) binds an ephemeral
+loopback port via the autouse ``grpc_channel`` fixture. Entering the real app
+lifespan starts that server; importing ``api_grpc``'s ``server`` module pulls in
+this overlay and registers ``ChatService``. The test then runs a real
+bidirectional stream against the running server.
+"""
+
+from __future__ import annotations
+
+from {{ python_package }}.grpc import GrpcRuntime
+from {{ python_package }}.grpc._pb.streaming.v1 import chat_pb2
+from {{ python_package }}.lifespan import lifespan
+from {{ python_package }}.main import app
+
+
+async def _outbound() -> object:
+    for seq, text in enumerate(["hello", "world", "bidi"]):
+        yield chat_pb2.ChatMessage(seq=seq, text=text)
+
+
+async def test_streaming_grpc_boots(grpc_stream_stub) -> None:
+    async with lifespan(app):
+        runtime = getattr(app.state, "grpc_server", None)
+        assert isinstance(runtime, GrpcRuntime), "grpc runtime missing from app.state"
+        assert runtime.started
+
+        replies: list[tuple[int, str]] = []
+        async with grpc_stream_stub() as stub:
+            async for reply in stub.Chat(_outbound()):
+                replies.append((reply.seq, reply.text))
+
+        assert replies == [(0, "HELLO"), (1, "WORLD"), (2, "BIDI")]

@@ -1,0 +1,37 @@
+"""transport_grpc proves-it-boots test (overlay-contract 7).
+
+Offline: no channel is opened. Asserts the peer registry is derived from
+``service_names`` and every peer resolves to its compose-network default target.
+"""
+
+from __future__ import annotations
+
+from {{ python_package }}.config import get_settings
+from {{ python_package }}.transport.grpc import PEERS, peer_target
+
+_EXPECTED_PEERS = {
+{%- for peer in service_names if peer != service_name %}
+    "{{ peer }}": "{{ peer }}:50051",
+{%- endfor %}
+}
+
+
+def test_peer_registry_matches_service_names() -> None:
+    assert set(PEERS) == set(_EXPECTED_PEERS)
+    assert len(PEERS) == len(_EXPECTED_PEERS)
+
+
+def test_peer_targets_resolve_to_compose_defaults() -> None:
+    get_settings.cache_clear()
+    try:
+        for name, target in _EXPECTED_PEERS.items():
+            assert peer_target(name) == target
+    finally:
+        get_settings.cache_clear()
+
+
+def test_unknown_peer_raises() -> None:
+    import pytest
+
+    with pytest.raises(KeyError):
+        peer_target("does-not-exist")

@@ -1,0 +1,109 @@
+"""Dead-letter and delayed-retry topology.
+
+aio-pika ships no retry helper, so the portable pattern against a stock broker is
+the DLX + TTL delayed-retry topology built from queue arguments
+(``research/messaging-grpc.md``):
+
+    publish -> [events exchange] -> work queue
+      work queue --nack(requeue=False)--> [dlx] --"retry" key--> retry queue
+      retry queue  (x-message-ttl = backoff)  --TTL expiry--> [events exchange] -> work queue
+      after MAX_ATTEMPTS the consumer publishes to [dlx] --"dead" key--> dead queue and acks
+
+Every name derives from ``TopologyConfig.namespace`` so a service can run more
+than one topology side by side.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import aio_pika
+from aio_pika.abc import AbstractChannel
+
+
+@dataclass(frozen=True)
+class TopologyConfig:
+    """Names and tunables for one work topology. All derived from ``namespace``."""
+
+    namespace: str = "app"
+    #: consumer attempts (initial delivery + retries) before a message is parked
+    #: on the dead queue for good.
+    max_attempts: int = 5
+    #: delay a message waits in the retry queue before it returns to the work
+    #: queue, in milliseconds.
+    retry_backoff_ms: int = 30_000
+
+    @property
+    def events_exchange(self) -> str:
+        return f"{self.namespace}.events"
+
+    @property
+    def dlx(self) -> str:
+        return f"{self.namespace}.dlx"
+
+    @property
+    def work_queue(self) -> str:
+        return f"{self.namespace}.work"
+
+    @property
+    def work_routing_key(self) -> str:
+        return f"{self.namespace}.work"
+
+    @property
+    def retry_queue(self) -> str:
+        return f"{self.namespace}.work.retry"
+
+    @property
+    def retry_routing_key(self) -> str:
+        return f"{self.namespace}.work.retry"
+
+    @property
+    def dead_queue(self) -> str:
+        return f"{self.namespace}.work.dead"
+
+    @property
+    def dead_routing_key(self) -> str:
+        return f"{self.namespace}.work.dead"
+
+
+async def declare_topology(
+    channel: AbstractChannel, config: TopologyConfig | None = None
+) -> TopologyConfig:
+    """Idempotently declare the exchanges, queues and bindings for ``config``.
+
+    Safe to call on every startup: RabbitMQ declarations are idempotent as long
+    as the arguments do not change.
+    """
+
+    config = config or TopologyConfig()
+
+    events = await channel.declare_exchange(
+        config.events_exchange, aio_pika.ExchangeType.TOPIC, durable=True
+    )
+    dlx = await channel.declare_exchange(config.dlx, aio_pika.ExchangeType.TOPIC, durable=True)
+
+    work = await channel.declare_queue(
+        config.work_queue,
+        durable=True,
+        arguments={
+            "x-dead-letter-exchange": config.dlx,
+            "x-dead-letter-routing-key": config.retry_routing_key,
+        },
+    )
+    await work.bind(events, routing_key=config.work_routing_key)
+
+    retry = await channel.declare_queue(
+        config.retry_queue,
+        durable=True,
+        arguments={
+            "x-message-ttl": config.retry_backoff_ms,
+            "x-dead-letter-exchange": config.events_exchange,
+            "x-dead-letter-routing-key": config.work_routing_key,
+        },
+    )
+    await retry.bind(dlx, routing_key=config.retry_routing_key)
+
+    dead = await channel.declare_queue(config.dead_queue, durable=True)
+    await dead.bind(dlx, routing_key=config.dead_routing_key)
+
+    return config

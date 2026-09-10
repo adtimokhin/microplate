@@ -1,0 +1,14 @@
+{% if tests_contract -%}
+# buf v2 config for the shared inter-service proto contract (tests_contract).
+# `buf lint` + `buf breaking` run in the root CI workflow; the pinned buf
+# version lives in .github/workflows/ci.yml (D-009-style pinning).
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE
+{%- endif %}

@@ -1,0 +1,69 @@
+"""Shared-topic-exchange event bus for inter-service messaging.
+
+Pure helpers over ``aio-pika``: pass in a connection, get publish / consume
+against the mesh's shared exchange. The connection lifecycle belongs to the
+caller (typically an overlay lifespan hook), so these stay trivially testable.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+
+import aio_pika
+from aio_pika.abc import (
+    AbstractIncomingMessage,
+    AbstractQueue,
+    AbstractRobustConnection,
+)
+
+from {{ python_package }}.config import get_settings
+
+Handler = Callable[[AbstractIncomingMessage], Awaitable[None]]
+
+
+def inbox_queue_name() -> str:
+    """This service's durable inbox queue on the shared exchange."""
+
+    return f"{get_settings().service_name}.inbox"
+
+
+async def connect() -> AbstractRobustConnection:
+    """Open a robust connection to the shared broker (``APP_TRANSPORT_RABBITMQ_URL``)."""
+
+    return await aio_pika.connect_robust(get_settings().transport_rabbitmq_url)
+
+
+async def publish(
+    connection: AbstractRobustConnection, routing_key: str, body: bytes
+) -> None:
+    """Publish ``body`` to the shared topic exchange under ``routing_key``."""
+
+    settings = get_settings()
+    channel = await connection.channel()
+    try:
+        exchange = await channel.declare_exchange(
+            settings.transport_exchange, aio_pika.ExchangeType.TOPIC, durable=True
+        )
+        await exchange.publish(aio_pika.Message(body=body), routing_key=routing_key)
+    finally:
+        await channel.close()
+
+
+async def consume(
+    connection: AbstractRobustConnection,
+    patterns: list[str],
+    handler: Handler,
+) -> AbstractQueue:
+    """Bind this service's inbox queue to ``patterns`` and start consuming."""
+
+    settings = get_settings()
+    channel = await connection.channel()
+    await channel.set_qos(prefetch_count=settings.transport_rabbitmq_prefetch)
+    exchange = await channel.declare_exchange(
+        settings.transport_exchange, aio_pika.ExchangeType.TOPIC, durable=True
+    )
+    queue = await channel.declare_queue(inbox_queue_name(), durable=True)
+    for pattern in patterns:
+        await queue.bind(exchange, routing_key=pattern)
+    await queue.consume(handler)
+    return queue

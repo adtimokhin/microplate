@@ -1,0 +1,37 @@
+"""api_grpc proves-it-boots test (overlay-contract 7).
+
+Runs offline: ``grpc_channel`` pins the server to an ephemeral loopback port, so
+entering the real app lifespan starts a real ``grpc.aio`` server with no
+external service. Exercises the full wiring path (lifespan startup ->
+GrpcRuntime.start -> app.state + health holder) and makes a real unary call plus
+a real ``grpc.health.v1`` probe over the wire.
+"""
+
+from __future__ import annotations
+
+from {{ python_package }}.grpc import GrpcRuntime, example_stub
+from {{ python_package }}.grpc._pb.example.v1 import example_pb2
+from {{ python_package }}.health import check_api_grpc
+from {{ python_package }}.lifespan import lifespan
+from {{ python_package }}.main import app
+
+
+async def test_api_grpc_boots(grpc_channel) -> None:
+    async with lifespan(app):
+        runtime = getattr(app.state, "grpc_server", None)
+        assert isinstance(runtime, GrpcRuntime), "grpc runtime missing from app.state"
+        assert runtime.started
+        assert runtime.bound_port
+
+        result = await check_api_grpc()
+        assert result.healthy, result
+
+        async with example_stub() as stub:
+            reply = await stub.Greet(example_pb2.GreetRequest(name="boots"))
+            assert reply.message == "Hello, boots!"
+
+            ticks = [tick.index async for tick in stub.Ticks(example_pb2.TicksRequest(count=3))]
+            assert ticks == [0, 1, 2]
+
+    # shutdown hook ran: the health holder is cleared.
+    assert not (await check_api_grpc()).healthy

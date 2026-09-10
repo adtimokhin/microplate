@@ -1,0 +1,24 @@
+"""LangSmith tracing overlay (research/ai-stack.md 6).
+
+Re-exports ``traceable`` so handlers import it from one place, plus the startup
+``configure`` and the resolved :class:`TracingConfig`.
+"""
+
+from langsmith import traceable
+
+from .pipeline import sample_pipeline
+from .tracing import (
+    TracingConfig,
+    configure,
+    get_tracing_config,
+    set_tracing_config,
+)
+
+__all__ = [
+    "TracingConfig",
+    "configure",
+    "get_tracing_config",
+    "sample_pipeline",
+    "set_tracing_config",
+    "traceable",
+]

@@ -1,0 +1,8 @@
+{#
+  slugify(value): lowercase, non-alphanumeric runs collapsed to a single hyphen,
+  leading and trailing hyphens stripped. Deterministic, ASCII only.
+  Used by copier.yml computed defaults (service_slug) and by templates.
+#}
+{%- macro slugify(value) -%}
+{{- value | lower | regex_replace('[^a-z0-9]+', '-') | regex_replace('^-+|-+$', '') -}}
+{%- endmacro -%}

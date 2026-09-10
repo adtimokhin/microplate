@@ -1,0 +1,50 @@
+"""Proves the langsmith overlay is wired into the running app (overlay-contract 7).
+
+Runs offline: the autouse ``langsmith_tracer`` fixture forces tracing OFF, so
+``@traceable`` is a transparent pass-through and nothing touches the network.
+"""
+
+from __future__ import annotations
+
+import os
+
+import pytest
+
+from {{ python_package }}.observability.langsmith.tracing import TracingConfig
+
+
+async def test_langsmith_boots(langsmith_tracer: object) -> None:
+    from {{ python_package }}.lifespan import lifespan
+    from {{ python_package }}.main import app
+    from {{ python_package }}.observability.langsmith import sample_pipeline
+    from {{ python_package }}.observability.langsmith.tracing import get_tracing_config
+
+    async with lifespan(app):
+        config = getattr(app.state, "langsmith", None)
+        assert config is not None, "langsmith config missing from app.state"
+        assert isinstance(config, TracingConfig)
+        assert config is get_tracing_config()
+        assert config.enabled is False, "the boots fixture must neutralise tracing"
+        assert "LANGSMITH_TRACING" not in os.environ
+
+        result = await sample_pipeline("  Hello WORLD  ")
+        assert result == "hello world"
+
+
+def test_langsmith_configure_enables_from_settings(
+    langsmith_tracer: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.observability.langsmith.tracing import configure
+
+    monkeypatch.setenv("APP_LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("APP_LANGSMITH_API_KEY", "unit-key")
+    monkeypatch.setenv("APP_LANGSMITH_PROJECT", "unit-project")
+    get_settings.cache_clear()
+
+    config = configure()
+    assert config.enabled is True
+    assert config.project == "unit-project"
+    assert os.environ["LANGSMITH_TRACING"] == "true"
+    assert os.environ["LANGSMITH_API_KEY"] == "unit-key"
+    assert os.environ["LANGSMITH_PROJECT"] == "unit-project"

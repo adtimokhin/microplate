@@ -1,0 +1,56 @@
+"""Example tools. Importing this module registers them on the shared registry.
+
+Replace these with real tools: define a request and response ``BaseModel``, an
+async handler, then ``registry.register(ToolSpec(...))``.
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+from .registry import ToolSpec, registry
+
+
+class EchoRequest(BaseModel):
+    text: str = Field(description="Text to echo back verbatim.")
+
+
+class EchoResponse(BaseModel):
+    text: str = Field(description="The same text that was sent.")
+
+
+async def echo(request: EchoRequest) -> EchoResponse:
+    return EchoResponse(text=request.text)
+
+
+class AddRequest(BaseModel):
+    a: float = Field(description="First addend.")
+    b: float = Field(description="Second addend.")
+
+
+class AddResponse(BaseModel):
+    sum: float = Field(description="The sum of a and b.")
+
+
+async def add(request: AddRequest) -> AddResponse:
+    return AddResponse(sum=request.a + request.b)
+
+
+registry.register(
+    ToolSpec(
+        name="echo",
+        description="Echo the given text back unchanged.",
+        request_model=EchoRequest,
+        response_model=EchoResponse,
+        handler=echo,
+    )
+)
+registry.register(
+    ToolSpec(
+        name="add",
+        description="Add two numbers and return their sum.",
+        request_model=AddRequest,
+        response_model=AddResponse,
+        handler=add,
+    )
+)

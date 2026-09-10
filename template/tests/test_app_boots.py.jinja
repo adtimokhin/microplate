@@ -1,0 +1,42 @@
+{%- from 'includes/answers_helpers.jinja' import selected_overlay_ids with context -%}
+"""Base smoke test (overlay-contract 7).
+
+The app imports, liveness is 200, and readiness is 200 with every registered
+check healthy. With no overlays selected the readiness check set is empty.
+"""
+
+from __future__ import annotations
+
+
+def test_app_module_imports() -> None:
+    from {{ python_package }}.main import app
+
+    assert app.title == "{{ service_name }}"
+
+
+def test_health_live(client) -> None:
+    response = client.get("/health/live")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_health_ready(client) -> None:
+    response = client.get("/health/ready")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert all(check["healthy"] for check in body["checks"].values())
+{%- if not selected_overlay_ids %}
+    assert body["checks"] == {}
+{%- endif %}
+
+
+def test_root(client) -> None:
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.json()["service"] == "{{ service_slug }}"
+
+
+def test_correlation_id_header(client) -> None:
+    response = client.get("/health/live")
+    assert response.headers.get("x-request-id")

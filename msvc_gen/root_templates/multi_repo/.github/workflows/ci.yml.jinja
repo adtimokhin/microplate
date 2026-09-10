@@ -1,0 +1,48 @@
+name: ci
+
+# Aggregate workflow for the multi_repo set BEFORE the repos are split to their
+# own remotes. Once split, each service repo carries its own copier-generated
+# .github/workflows/ci.yml and this file goes away with the parent directory.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  services:
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+{%- for svc in services %}
+          - {{ svc.name }}
+{%- endfor %}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: {% raw %}${{ matrix.service }}{% endraw %}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.10"
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest
+{%- if tests_contract %}
+
+  proto-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          # Pinned. TODO(registry): source this from a registry.yaml tool pin.
+          version: "1.47.2"
+      - run: buf lint
+      - run: buf breaking --against ".git#branch=main"
+{%- endif %}

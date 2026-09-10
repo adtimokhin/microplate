@@ -1,0 +1,33 @@
+"""Sample LLM route: ``POST /llm/openai/summarize``.
+
+Wired into the base ``api_router`` at import time through the ``api_router.py``
+fragment. The operation id and typed models keep the OpenAPI readable for
+function-calling clients.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
+
+from {{ python_package }}.llm.openai.summarize import summarize
+
+router = APIRouter(prefix="/llm/openai", tags=["llm"])
+
+
+class SummarizeRequest(BaseModel):
+    text: str = Field(description="Text to summarize.", min_length=1)
+
+
+class SummarizeResponse(BaseModel):
+    summary: str = Field(description="One-sentence summary of the input text.")
+
+
+@router.post(
+    "/summarize",
+    operation_id="llm_openai_summarize",
+    summary="Summarize text in one sentence.",
+    description="Deterministic (temperature 0) one-sentence summary of the input text.",
+)
+async def summarize_route(payload: SummarizeRequest) -> SummarizeResponse:
+    return SummarizeResponse(summary=await summarize(payload.text))

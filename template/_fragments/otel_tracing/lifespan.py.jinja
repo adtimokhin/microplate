@@ -1,0 +1,23 @@
+
+
+async def _otel_tracing_startup(app: FastAPI) -> None:
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.observability.otel import instrument_app, setup_tracing
+
+    settings = get_settings()
+    setup_tracing(
+        service_name=settings.otel_service_name,
+        environment=settings.environment,
+        endpoint=settings.otel_exporter_otlp_endpoint,
+    )
+    instrument_app(app)
+
+
+async def _otel_tracing_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.observability.otel import shutdown_tracing
+
+    shutdown_tracing()
+
+
+STARTUP_HOOKS.append(_otel_tracing_startup)
+SHUTDOWN_HOOKS.append(_otel_tracing_shutdown)

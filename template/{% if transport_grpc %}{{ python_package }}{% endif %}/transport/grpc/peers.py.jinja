@@ -1,0 +1,49 @@
+"""Peer registry for gRPC inter-service calls.
+
+Every other service in ``service_names`` gets an entry. A peer's target address
+resolves from settings (``APP_PEER_<NAME>_GRPC_TARGET``); the default is the
+peer's compose service name on port 50051 - the address it is reachable at on
+the shared compose network for a ``monorepo``, or an env var a ``multi_repo``
+deployment overrides.
+"""
+
+# grpcio ships no type stubs / py.typed marker.
+# mypy: disable-error-code="import-untyped, no-untyped-call"
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
+import grpc
+
+from {{ python_package }}.config import get_settings
+
+# Peer service name -> the Settings attribute holding its resolved gRPC target.
+_PEER_TARGET_ATTR: dict[str, str] = {
+{%- for peer in service_names if peer != service_name %}
+    "{{ peer }}": "peer_{{ peer | replace('-', '_') }}_grpc_target",
+{%- endfor %}
+}
+
+#: The other services this one can call over gRPC, in ``service_names`` order.
+PEERS: tuple[str, ...] = tuple(_PEER_TARGET_ATTR)
+
+
+def peer_target(peer: str) -> str:
+    """Return the resolved ``host:port`` gRPC target for ``peer``."""
+
+    try:
+        attr = _PEER_TARGET_ATTR[peer]
+    except KeyError:
+        known = ", ".join(PEERS) or "(none)"
+        raise KeyError(f"unknown gRPC peer {peer!r}; known peers: {known}") from None
+    return str(getattr(get_settings(), attr))
+
+
+@asynccontextmanager
+async def peer_channel(peer: str) -> AsyncIterator[Any]:
+    """Async-context-manage an insecure ``grpc.aio`` channel to ``peer``."""
+
+    async with grpc.aio.insecure_channel(peer_target(peer)) as channel:
+        yield channel

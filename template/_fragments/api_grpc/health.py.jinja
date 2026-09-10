@@ -1,0 +1,19 @@
+
+
+async def check_api_grpc() -> HealthResult:
+    """Readiness probe: call ``grpc.health.v1.Health/Check`` on the co-hosted server."""
+
+    from {{ python_package }}.grpc.server import get_runtime
+
+    name = "api_grpc"
+    runtime = get_runtime()
+    if runtime is None or not runtime.started:
+        return HealthResult(name=name, healthy=False, detail="grpc server not started")
+    try:
+        serving = await runtime.probe()
+    except Exception as exc:  # noqa: BLE001 - a readiness check must never raise
+        return HealthResult(name=name, healthy=False, detail=repr(exc))
+    return HealthResult(name=name, healthy=serving, detail="" if serving else "not SERVING")
+
+
+READINESS_CHECKS.append(check_api_grpc)

@@ -1,0 +1,21 @@
+
+
+@pytest.fixture(autouse=True)
+def grpc_channel(monkeypatch: pytest.MonkeyPatch):
+    """Bind the co-hosted gRPC server to an ephemeral port for every test.
+
+    Autouse: the base smoke tests enter the app lifespan, which starts the gRPC
+    server. Pinning ``APP_GRPC_PORT=0`` keeps parallel test runs from fighting
+    over 50051 and needs no external service. Yields the ``open_channel`` helper
+    so a test can dial the running server over loopback.
+    """
+
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.grpc import open_channel
+
+    monkeypatch.setenv("APP_GRPC_PORT", "0")
+    get_settings.cache_clear()
+    try:
+        yield open_channel
+    finally:
+        get_settings.cache_clear()

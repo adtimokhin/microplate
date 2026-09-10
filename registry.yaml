@@ -1,0 +1,1076 @@
+# registry.yaml
+# Single source of truth for the generator question schema.
+# copier.yml is DERIVED from this file by scripts/gen_copier_yml.py. Never hand-edit copier.yml.
+# Schema: docs/registry-schema.md   Overlay rules: docs/overlay-contract.md
+# build_status "implemented": otel_tracing (Phase 1 / D-024); and all 9 Phase 2 overlays -
+# db_postgres, db_mongodb, db_redis, redis_pubsub, db_qdrant, messaging_rabbitmq, api_grpc,
+# streaming_sse, streaming_grpc, tool_scaffold. All others (AI, topology, mcp_server) "planned".
+# PINS ARE FROZEN as of 2026-09-07 (D-019). Every version in python_deps / compose_services /
+# compose_image_pins is exact and carries an `as_of` date. Overlay engineers use the registry pin
+# as-is. Pins change only through an explicit DevOps "refresh pins" PR that re-verifies each bump
+# upstream, updates `as_of`, and is recorded in STATUS.md. See research/copier-architect-notes.md.
+# Reconciled with Lead decisions D-008..D-028 (see DECISIONS.md and STATUS.md).
+
+meta:
+  registry_version: 0
+  copier_min_version: "9.18.2"
+  python_baseline: "3.12"
+  answers_file: ".copier-answers.yml"
+  env_prefix: "APP_"
+  subdirectory: "template"
+  build_backend: "hatchling"          # D-010
+  dependency_manager: "uv"            # D-010, committed uv.lock, `uv sync --locked`
+  base_image: "python:3.12-slim-bookworm"  # D-010, no Alpine
+  copier_tasks_form: "list"           # D-012, list-form _tasks only, explicit vcs_ref
+  pins_frozen_as_of: "2026-09-07"     # D-019, bumps only via an explicit refresh-pins PR
+  skip_if_exists:                     # emitted as copier _skip_if_exists (generate-once, never clobbered on update)
+    - ".env"
+
+# Post-generation tasks, emitted as copier list-form _tasks (D-012: argv, no shell) in this order.
+# Base tasks run for every generation. Per-overlay tasks live on the option entry as `tasks:` and
+# are emitted with the overlay gate folded into their `when`. api_grpc / db_postgres task lists are
+# added by the Messaging and Data Layer engineers when those overlays land (D-028 coordination).
+tasks:
+  - command: ["uv", "lock"]
+    when: "{{ _copier_operation == 'copy' }}"
+    comment: "Resolve the lockfile once, on copy only (overlay-contract 4.4a). The one sanctioned non-deterministic step: reads the live index."
+
+# Frozen, append-only. Only legal iteration order for shared-file assembly (overlay-contract 4.2).
+overlay_order:
+  - db_postgres
+  - db_mongodb
+  - db_redis
+  - db_qdrant
+  - messaging_rabbitmq
+  - api_grpc
+  - tool_scaffold
+  - mcp_server
+  - transport_grpc
+  - transport_rabbitmq
+  - streaming_sse
+  - streaming_grpc
+  - llm_openai
+  - llm_anthropic
+  - prompt_management
+  - langchain
+  - embedding_pipeline
+  - langgraph
+  - langsmith
+  - otel_tracing
+
+groups:
+  base:          { title: "Service basics",        order: 10 }
+  api:           { title: "API layer",             order: 20 }
+  data:          { title: "Data layer",            order: 30 }
+  messaging:     { title: "Messaging",             order: 40 }
+  topology:      { title: "Service topology",      order: 50 }
+  ai:            { title: "AI system components",  order: 60 }
+  testing:       { title: "Testing",               order: 70 }
+  observability: { title: "Observability",         order: 80 }
+  packaging:     { title: "Docker, CI, IaC",       order: 90 }
+
+# ---------------------------------------------------------------------------
+options:
+
+  # ---- base -------------------------------------------------------------
+  service_name:
+    key: service_name
+    group: base
+    prompt: "Service name (kebab-case, e.g. billing-api)"
+    type: str
+    default: null
+    validator_rule: "must match ^[a-z][a-z0-9-]{1,48}$"
+    validator:
+      regex: "^[a-z][a-z0-9-]{1,48}$"
+      message: "service_name must match ^[a-z][a-z0-9-]{1,48}$"
+    build_status: planned
+    milestone: 2
+
+  service_slug:
+    key: service_slug
+    group: base
+    prompt: "computed"
+    type: str
+    when: false
+    default: "{{ service_name }}"
+    build_status: planned
+    milestone: 2
+
+  python_package:
+    key: python_package
+    group: base
+    prompt: "computed"
+    type: str
+    when: false
+    default: "{{ service_slug | replace('-', '_') }}"
+    build_status: planned
+    milestone: 2
+
+  python_version:
+    key: python_version
+    group: base
+    prompt: "computed"
+    type: str
+    when: false
+    default: "3.12"
+    build_status: planned
+    milestone: 2
+    notes: "Only 3.12 in v1 (D-004), so not prompted. When a second version is supported this becomes a prompted `str` with `choices` and a `migrations` entry is not needed (the default is unchanged)."
+
+  api_rest:
+    key: api_rest
+    group: base
+    prompt: "computed"
+    type: bool
+    when: false
+    default: true
+    build_status: planned
+    milestone: 2
+    notes: "FastAPI REST is the base template, not an overlay. Key exists so overlays can require it."
+
+  license:
+    key: license
+    group: base
+    prompt: "License"
+    type: str
+    choices: { Proprietary: proprietary, MIT: mit, "Apache 2.0": apache_2_0 }
+    default: proprietary
+    build_status: planned
+    milestone: 2
+
+  # ---- api ------------------------------------------------------------
+  api_grpc:
+    key: api_grpc
+    group: api
+    prompt: "Add a gRPC server (protobuf defs + generated stubs)?"
+    type: bool
+    default: false
+    gate: "api_grpc"
+    overlay_id: api_grpc
+    template_paths:
+      - "template/{% if api_grpc %}{{ python_package }}{% endif %}/grpc"
+      - "template/{% if api_grpc %}proto{% endif %}"
+    python_deps:
+      grpcio:       { version: "1.83.1", as_of: "2026-09-07" }
+      grpcio-tools: { version: "1.83.1", as_of: "2026-09-07", group: dev }   # regen-only (proto/regen_proto.py), not a runtime dep
+      grpcio-health-checking: { version: "1.83.1", as_of: "2026-09-07" }
+      grpcio-reflection: { version: "1.83.1", as_of: "2026-09-07" }
+      grpcio-status: { version: "1.83.1", as_of: "2026-09-07" }
+      protobuf: { version: "7.36.1", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_GRPC_HOST, type: str, required: false, default: "0.0.0.0", secret: false, description: "gRPC bind host" }
+      - { name: APP_GRPC_PORT, type: int, required: false, default: 50051, secret: false, description: "gRPC bind port" }
+    compose_services: []
+    fixtures:
+      - { name: grpc_channel, kind: mock }
+    health_checks: [check_api_grpc]
+    ci_steps: "Adds a `test`-job step that runs `proto/regen_proto.py` then `git diff --exit-code` so the committed gRPC stubs can never drift (D-009). Always runs when api_grpc is selected."
+    boots_test: "tests/overlays/test_api_grpc_boots.py"
+    build_status: implemented
+    milestone: 4
+    notes: "D-009: generated _pb2/_pb2_grpc/_pb2.pyi stubs are COMMITTED into the project plus a pinned regen script and a CI diff guard. No build-time codegen."
+
+  streaming_sse:
+    key: streaming_sse
+    group: api
+    prompt: "Add SSE streaming responses?"
+    type: bool
+    default: false
+    gate: "streaming_sse"
+    overlay_id: streaming_sse
+    template_paths:
+      - "template/{% if streaming_sse %}{{ python_package }}{% endif %}/streaming/sse"
+    requires:
+      - { expr: "api_rest", message: "SSE streaming requires the REST API (V-14)." }
+    python_deps:
+      sse-starlette: { version: "3.4.11", as_of: "2026-09-07" }
+    env_vars: []
+    fixtures:
+      - { name: sse_client, kind: mock }
+    health_checks: []
+    ci_steps: "No extra CI. Covered by unit tests."
+    boots_test: "tests/overlays/test_streaming_sse_boots.py"
+    build_status: implemented
+    milestone: 4
+    notes: "D-020: split from the former `streaming` multiselect into a boolean."
+
+  streaming_grpc:
+    key: streaming_grpc
+    group: api
+    prompt: "Add gRPC streaming responses?"
+    type: bool
+    default: false
+    gate: "streaming_grpc"
+    overlay_id: streaming_grpc
+    template_paths:
+      - "template/{% if streaming_grpc %}{{ python_package }}{% endif %}/streaming/grpc"
+    requires:
+      - { expr: "api_grpc", message: "gRPC streaming requires the gRPC server overlay (V-13)." }
+    python_deps: {}
+    env_vars: []
+    fixtures:
+      - { name: grpc_stream_stub, kind: mock }
+    health_checks: []
+    ci_steps: "No extra CI. Covered by unit tests."
+    boots_test: "tests/overlays/test_streaming_grpc_boots.py"
+    build_status: implemented
+    milestone: 4
+    notes: "D-020: split from the former `streaming` multiselect into a boolean. Reuses grpcio from the api_grpc overlay."
+
+  tool_scaffold:
+    key: tool_scaffold
+    group: api
+    prompt: "Add function-call-shaped endpoint scaffold (OpenAPI tuned for tool use)?"
+    type: bool
+    default: false
+    gate: "tool_scaffold"
+    overlay_id: tool_scaffold
+    template_paths:
+      - "template/{% if tool_scaffold %}{{ python_package }}{% endif %}/tools"
+    requires:
+      - { expr: "api_rest or api_grpc", message: "Tool scaffold requires the REST API or the gRPC server (V-2)." }
+    python_deps: {}
+    env_vars: []
+    compose_services: []
+    fixtures:
+      - { name: tool_client, kind: mock }
+    health_checks: [check_tool_scaffold]
+    ci_steps: "No extra CI step. The function-calling OpenAPI shape (one operationId per tool, JSON-Schema parameters) is asserted in the boots test, which the existing `test` job runs."
+    boots_test: "tests/overlays/test_tool_scaffold_boots.py"
+    build_status: implemented
+    milestone: 4
+    notes: "OpenAPI-shaped routes (D-007). MCP is a separate overlay."
+
+  mcp_server:
+    key: mcp_server
+    group: api
+    prompt: "Expose selected endpoints as an MCP tool server?"
+    type: bool
+    default: false
+    gate: "mcp_server"
+    overlay_id: mcp_server
+    template_paths:
+      - "template/{% if mcp_server %}{{ python_package }}{% endif %}/mcp"
+    requires:
+      - { expr: "tool_scaffold or api_grpc", message: "MCP server requires the tool scaffold or the gRPC server (V-3)." }
+    python_deps:
+      mcp: { version: "2.2.0", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_MCP_HOST, type: str, required: false, default: "0.0.0.0", secret: false, description: "MCP server bind host" }
+      - { name: APP_MCP_PORT, type: int, required: false, default: 8900, secret: false, description: "MCP server bind port" }
+    compose_services: []
+    fixtures:
+      - { name: mcp_session, kind: mock }
+    health_checks: [check_mcp_server]
+    ci_steps: "Adds an MCP tool-list contract test to the unit job."
+    boots_test: "tests/overlays/test_mcp_server_boots.py"
+    build_status: planned
+    milestone: 5
+    notes: "D-007."
+
+  # ---- data ---------------------------------------------------------
+  db_postgres:
+    key: db_postgres
+    group: data
+    prompt: "Add PostgreSQL (async SQLAlchemy 2.x + Alembic)?"
+    type: bool
+    default: false
+    gate: "db_postgres"
+    overlay_id: db_postgres
+    template_paths:
+      - "template/{% if db_postgres %}{{ python_package }}{% endif %}/db/postgres"
+      - "template/{% if db_postgres %}migrations{% endif %}"
+    python_deps:
+      "sqlalchemy[asyncio]": { version: "2.0.52", as_of: "2026-09-07" }
+      asyncpg:    { version: "0.31.0", as_of: "2026-09-07" }
+      alembic:    { version: "1.19.2", as_of: "2026-09-07" }
+      greenlet:   { version: "3.5.5",  as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_DB_POSTGRES_DSN, type: str, required: false, default: "postgresql+asyncpg://app:app@postgres:5432/app", secret: true, description: "D-030: default targets the compose service `postgres`; override in prod. secret for log redaction." }
+      - { name: APP_DB_POSTGRES_POOL_SIZE, type: int, required: false, default: 5, secret: false, description: "SQLAlchemy pool size" }
+    compose_services:
+      - { name: postgres, image: "postgres:17.6", ports: ["5432:5432"], healthcheck: "pg_isready -U app -d app", notes: "compose env POSTGRES_USER/PASSWORD/DB = app/app/app, matching the APP_DB_POSTGRES_DSN default (D-030)." }
+    fixtures:
+      - { name: postgres_session, kind: mock }
+      - { name: postgres_container, kind: container }
+    health_checks: [check_db_postgres]
+    ci_steps: "When tests_integration: adds a postgres service to the integration job."
+    boots_test: "tests/overlays/test_db_postgres_boots.py"
+    build_status: implemented
+    milestone: 3
+
+  db_mongodb:
+    key: db_mongodb
+    group: data
+    prompt: "Add MongoDB (PyMongo async client)?"
+    type: bool
+    default: false
+    gate: "db_mongodb"
+    overlay_id: db_mongodb
+    template_paths:
+      - "template/{% if db_mongodb %}{{ python_package }}{% endif %}/db/mongodb"
+    python_deps:
+      pymongo: { version: "4.18.0", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_DB_MONGODB_URI, type: str, required: false, default: "mongodb://mongodb:27017", secret: true, description: "D-030: default targets the compose service `mongodb`; override in prod. secret for log redaction." }
+      - { name: APP_DB_MONGODB_DATABASE, type: str, required: false, default: "{{ service_slug }}", secret: false, description: "Mongo database name; per-service default (D-030, Lead ruling 2026-09-08; precedent APP_LANGSMITH_PROJECT)." }
+      - { name: APP_DB_MONGODB_SERVER_SELECTION_TIMEOUT_MS, type: int, required: false, default: 3000, secret: false, description: "Mongo server selection timeout (ms); low value fails health checks fast" }
+    compose_services:
+      - { name: mongodb, image: "mongo:8.0", ports: ["27017:27017"], healthcheck: "mongosh --eval 'db.runCommand({ping:1})'", notes: "" }
+    fixtures:
+      - { name: mongodb_db, kind: mock }
+      - { name: mongodb_container, kind: container }
+    health_checks: [check_db_mongodb]
+    ci_steps: "When tests_integration: adds a mongodb service to the integration job."
+    boots_test: "tests/overlays/test_db_mongodb_boots.py"
+    build_status: implemented
+    milestone: 3
+    notes: "D-008: uses the PyMongo async API (AsyncMongoClient), not Motor. Motor is deprecated / EOL 2026-05-14."
+
+  db_redis:
+    key: db_redis
+    group: data
+    prompt: "Add Redis (cache + short-term state)?"
+    type: bool
+    default: false
+    gate: "db_redis"
+    overlay_id: db_redis
+    template_paths:
+      - "template/{% if db_redis %}{{ python_package }}{% endif %}/db/redis"
+    python_deps:
+      redis: { version: "8.1.0", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_REDIS_URL, type: str, required: false, default: "redis://redis:6379/0", secret: true, description: "D-030: default targets the compose service `redis`; override in prod. secret for log redaction." }
+      - { name: APP_REDIS_MAX_CONNECTIONS, type: int, required: false, default: 20, secret: false, description: "redis-py connection pool cap" }
+      - { name: APP_REDIS_HEALTH_CHECK_INTERVAL, type: int, required: false, default: 30, secret: false, description: "seconds between idle-connection pings on the pool" }
+    compose_services:
+      - { name: redis, image: "redis:8.0", ports: ["6379:6379"], healthcheck: "redis-cli ping", notes: "Base image. Resolved by image_resolution rule IR-1 (D-015): upgraded to redis/redis-stack when a LangGraph redis checkpoint is selected." }
+    fixtures:
+      - { name: redis_client, kind: mock }
+      - { name: redis_container, kind: container }
+    health_checks: [check_db_redis]
+    ci_steps: "When tests_integration: adds a redis service to the integration job."
+    boots_test: "tests/overlays/test_db_redis_boots.py"
+    build_status: implemented
+    milestone: 3
+
+  redis_pubsub:
+    key: redis_pubsub
+    group: data
+    prompt: "Include a Redis pub/sub helper?"
+    type: bool
+    default: false
+    when: "db_redis"
+    requires:
+      - { expr: "db_redis", message: "Redis pub/sub requires Redis (V-12)." }
+    build_status: implemented
+    milestone: 3
+    notes: "Sub-option of db_redis. Adds files inside the db_redis gated subtree; no separate overlay_id / boots_test / fixtures (covered by an extra assertion in test_db_redis_boots.py). build_status tracks db_redis: flip both together."
+
+  db_qdrant:
+    key: db_qdrant
+    group: data
+    prompt: "Add Qdrant vector store (client + collection bootstrap)?"
+    type: bool
+    default: false
+    gate: "db_qdrant"
+    overlay_id: db_qdrant
+    template_paths:
+      - "template/{% if db_qdrant %}{{ python_package }}{% endif %}/db/qdrant"
+    python_deps:
+      qdrant-client: { version: "1.19.0", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_QDRANT_URL, type: str, required: false, default: "http://qdrant:6333", secret: false, description: "D-030: default targets the compose service `qdrant`; override in prod." }
+      - { name: APP_QDRANT_API_KEY, type: str, required: false, default: null, secret: true, description: "Qdrant API key if auth enabled" }
+      - { name: APP_QDRANT_COLLECTION, type: str, required: false, default: "{{ service_slug }}", secret: false, description: "collection name the service uses; per-service default (parity with APP_DB_MONGODB_DATABASE)." }
+      - { name: APP_QDRANT_VECTOR_SIZE, type: int, required: false, default: 384, secret: false, description: "Qdrant collection dimension; defaulted from embedding_vector_size (fastembed=384)" }
+    compose_services:
+      - name: qdrant
+        image: "qdrant/qdrant:v1.19.1"        # as_of 2026-09-08 (D-023 owner: data_layer_engineer)
+        ports: ["6333:6333", "6334:6334"]
+        healthcheck: 'bash -c ''exec 3<>/dev/tcp/127.0.0.1/6333; printf "GET /readyz HTTP/1.0\r\n\r\n" >&3; grep -q "200 OK" <&3'''
+        notes: "Server minor must match qdrant-client (1.19.x) - the client enforces it and warns on mismatch; v1.15.4 tripped that (fixed 2026-09-08). No curl in the image, so the probe does a real GET /readyz and greps for 200 OK. Authoritative form is the list-form healthcheck in template/_fragments/db_qdrant/compose.yml.jinja."
+    fixtures:
+      - { name: qdrant_client, kind: mock }
+      - { name: qdrant_container, kind: container }
+    health_checks: [check_db_qdrant]
+    ci_steps: "When tests_integration: adds a qdrant service to the integration job."
+    boots_test: "tests/overlays/test_db_qdrant_boots.py"
+    build_status: implemented
+    milestone: 4
+    notes: "Sole vector store in v1 (D-001)."
+
+  # ---- messaging ---------------------------------------------------
+  messaging_rabbitmq:
+    key: messaging_rabbitmq
+    group: messaging
+    prompt: "Add RabbitMQ (publisher/consumer scaffolding, DLQ + retry defaults)?"
+    type: bool
+    default: false
+    gate: "messaging_rabbitmq"
+    overlay_id: messaging_rabbitmq
+    template_paths:
+      - "template/{% if messaging_rabbitmq %}{{ python_package }}{% endif %}/messaging"
+    python_deps:
+      aio-pika: { version: "10.0.1", as_of: "2026-09-07" }
+      "testcontainers[rabbitmq]": { version: "4.15.0", as_of: "2026-09-08", group: dev }   # NOT bare testcontainers: the rabbitmq extra pulls sync `pika`, which aio-pika does not provide. uv unions this with the datastores' bare testcontainers line.
+    env_vars:
+      - { name: APP_RABBITMQ_URL, type: str, required: false, default: "amqp://guest:guest@rabbitmq:5672/", secret: true, description: "D-030: default targets the compose service `rabbitmq`; override in prod. secret for log redaction." }
+      - { name: APP_RABBITMQ_PREFETCH, type: int, required: false, default: 10, secret: false, description: "Consumer prefetch count" }
+    compose_services:
+      - { name: rabbitmq, image: "rabbitmq:4.1-management", ports: ["5672:5672", "15672:15672"], healthcheck: "rabbitmq-diagnostics -q ping", notes: "" }
+    fixtures:
+      - { name: rabbitmq_channel, kind: mock }
+      - { name: rabbitmq_container, kind: container }
+    health_checks: [check_messaging_rabbitmq]
+    ci_steps: "When tests_integration: adds a rabbitmq service to the integration job."
+    boots_test: "tests/overlays/test_messaging_rabbitmq_boots.py"
+    build_status: implemented
+    milestone: 3
+    notes: "DLQ defaults and consumer retry/backoff are baked in, not separate keys. Default transport when topology is multi."
+
+  # ---- topology --------------------------------------------------
+  topology:
+    key: topology
+    group: topology
+    prompt: "Service topology"
+    type: str
+    choices: { "Single service": single, "Monorepo, multiple services": monorepo, "Separate repo per service": multi_repo }
+    default: single
+    build_status: planned
+    milestone: 6
+    notes: "D-005."
+
+  service_names:
+    key: service_names
+    group: topology
+    prompt: "Service names (YAML list, e.g. [api, worker])"
+    type: yaml
+    default: ["api"]
+    when: "topology != 'single'"
+    build_status: planned
+    milestone: 6
+    notes: "Explicit. Generator never invents names."
+
+  transport_grpc:
+    key: transport_grpc
+    group: topology
+    prompt: "Use gRPC for inter-service calls?"
+    type: bool
+    default: false
+    when: "topology != 'single'"
+    gate: "transport_grpc"
+    overlay_id: transport_grpc
+    template_paths:
+      - "template/{% if transport_grpc %}{{ python_package }}{% endif %}/transport/grpc"
+    requires:
+      - { expr: "topology != 'single'", message: "Inter-service transport only applies to multi-service topology." }
+    build_status: planned
+    milestone: 6
+    notes: "D-020: split from the former `transport` multiselect. Pulls the api_grpc overlay's server/stub wiring for service-to-service calls."
+
+  transport_rabbitmq:
+    key: transport_rabbitmq
+    group: topology
+    prompt: "Use RabbitMQ for inter-service messaging?"
+    type: bool
+    default: "{{ true if topology != 'single' else false }}"
+    when: "topology != 'single'"
+    gate: "transport_rabbitmq"
+    overlay_id: transport_rabbitmq
+    template_paths:
+      - "template/{% if transport_rabbitmq %}{{ python_package }}{% endif %}/transport/rabbitmq"
+    requires:
+      - { expr: "topology != 'single'", message: "Inter-service transport only applies to multi-service topology." }
+    build_status: planned
+    milestone: 6
+    notes: >-
+      D-020: split from the former `transport` multiselect. Pulls the
+      messaging_rabbitmq overlay's publisher/consumer wiring. Default is a
+      deterministic function of `topology` (scope section 4.3: RabbitMQ is the
+      default transport for a multi-service mesh) - it renders `true` whenever
+      `topology != 'single'` and the user does not answer, so V-1 is satisfied
+      without a failing prompt. V-1 still fires if the user explicitly sets
+      BOTH transports false with a multi-service topology.
+
+  services_config:
+    key: services_config
+    group: topology
+    prompt: "Per-service overlay selections (JSON map service -> answers submap)"
+    type: json
+    default: {}
+    when: "topology != 'single'"
+    build_status: planned
+    milestone: 6
+    notes: "Each submap is validated against this same registry. Shape owned by the topology overlay docs."
+
+  # ---- ai ------------------------------------------------------
+  llm_openai:
+    key: llm_openai
+    group: ai
+    prompt: "Add an OpenAI client (key config, retry, timeout, sample endpoint)?"
+    type: bool
+    default: false
+    gate: "llm_openai"
+    overlay_id: llm_openai
+    template_paths:
+      - "template/{% if llm_openai %}{{ python_package }}{% endif %}/llm/openai"
+    python_deps:
+      openai:   { version: "3.8.0",  as_of: "2026-09-07" }
+      tenacity: { version: "9.1.4",  as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_LLM_OPENAI_API_KEY, type: str, required: true, default: null, secret: true, description: "OpenAI API key" }
+      - { name: APP_LLM_OPENAI_MODEL, type: str, required: false, default: "gpt-4o-mini", secret: false, description: "Default model id" }
+      - { name: APP_LLM_OPENAI_TIMEOUT_S, type: int, required: false, default: 30, secret: false, description: "Request timeout seconds" }
+      - { name: APP_LLM_OPENAI_BASE_URL, type: str, required: false, default: null, secret: false, description: "Override base URL; point at a local fake server for deterministic tests (D-013)" }
+    fixtures:
+      - { name: openai_client, kind: mock }
+    health_checks: [check_llm_openai]
+    ci_steps: "No network calls. Deterministic stub tests only."
+    boots_test: "tests/overlays/test_llm_openai_boots.py"
+    build_status: planned
+    milestone: 5
+    notes: "D-002."
+
+  llm_anthropic:
+    key: llm_anthropic
+    group: ai
+    prompt: "Add an Anthropic client (key config, retry, timeout, sample endpoint)?"
+    type: bool
+    default: false
+    gate: "llm_anthropic"
+    overlay_id: llm_anthropic
+    template_paths:
+      - "template/{% if llm_anthropic %}{{ python_package }}{% endif %}/llm/anthropic"
+    python_deps:
+      anthropic: { version: "1.4.0", as_of: "2026-09-07" }
+      tenacity:  { version: "9.1.4", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_LLM_ANTHROPIC_API_KEY, type: str, required: true, default: null, secret: true, description: "Anthropic API key" }
+      - { name: APP_LLM_ANTHROPIC_MODEL, type: str, required: false, default: "claude-sonnet-5", secret: false, description: "Default model id" }
+      - { name: APP_LLM_ANTHROPIC_TIMEOUT_S, type: int, required: false, default: 30, secret: false, description: "Request timeout seconds" }
+      - { name: APP_LLM_ANTHROPIC_BASE_URL, type: str, required: false, default: null, secret: false, description: "Override base URL; point at a local fake server for deterministic tests (D-013)" }
+    fixtures:
+      - { name: anthropic_client, kind: mock }
+    health_checks: [check_llm_anthropic]
+    ci_steps: "No network calls. Deterministic stub tests only."
+    boots_test: "tests/overlays/test_llm_anthropic_boots.py"
+    build_status: planned
+    milestone: 5
+    notes: "D-002."
+
+  prompt_management:
+    key: prompt_management
+    group: ai
+    prompt: "Add versioned prompt files + a prompt registry/loader?"
+    type: bool
+    default: false
+    gate: "prompt_management"
+    overlay_id: prompt_management
+    template_paths:
+      - "template/{% if prompt_management %}{{ python_package }}{% endif %}/prompts"
+    python_deps: {}
+    env_vars:
+      - { name: APP_PROMPTS_DIR, type: str, required: false, default: "prompts", secret: false, description: "Prompt files directory" }
+    fixtures:
+      - { name: prompt_registry, kind: mock }
+    health_checks: []
+    ci_steps: "Adds a prompt-file schema validation step to the unit job."
+    boots_test: "tests/overlays/test_prompt_management_boots.py"
+    build_status: planned
+    milestone: 5
+    notes: "D-021: the pydantic-settings loader is base-owned. This overlay adds only the versioned prompt files plus a prompt registry/loader scoped to prompts."
+
+  langchain:
+    key: langchain
+    group: ai
+    prompt: "Add LangChain (prompt templates, output parsers, LLM calls)?"
+    type: bool
+    default: false
+    gate: "langchain"
+    overlay_id: langchain
+    template_paths:
+      - "template/{% if langchain %}{{ python_package }}{% endif %}/langchain"
+    requires:
+      - { expr: "llm_openai or llm_anthropic", message: "LangChain requires an LLM provider (V-7)." }
+    python_deps:
+      langchain:      { version: "1.4.0", as_of: "2026-09-07" }
+      langchain-core: { version: "1.6.2", as_of: "2026-09-07" }
+      langchain-openai:    { version: "1.6.0", as_of: "2026-09-07" }
+      langchain-anthropic: { version: "1.7.1", as_of: "2026-09-07" }
+      langchain-qdrant:    { version: "1.1.0", as_of: "2026-09-07" }
+    env_vars: []
+    fixtures:
+      - { name: langchain_llm, kind: mock }
+    health_checks: []
+    ci_steps: "Deterministic stub tests only."
+    boots_test: "tests/overlays/test_langchain_boots.py"
+    build_status: planned
+    milestone: 5
+    notes: "langchain-openai / langchain-anthropic deps are conditional inside the fragment on which provider is selected. langchain-qdrant only when langchain_retrieval."
+
+  langchain_retrieval:
+    key: langchain_retrieval
+    group: ai
+    prompt: "Include a LangChain retrieval chain against Qdrant?"
+    type: bool
+    default: false
+    when: "langchain"
+    requires:
+      - { expr: "langchain and db_qdrant", message: "LangChain retrieval requires LangChain and Qdrant (V-6)." }
+    build_status: planned
+    milestone: 5
+    notes: "Sub-option of langchain. Files land inside the langchain gated subtree."
+
+  embedding_pipeline:
+    key: embedding_pipeline
+    group: ai
+    prompt: "Add an embedding pipeline (embedding client + ingestion job to Qdrant)?"
+    type: bool
+    default: false
+    gate: "embedding_pipeline"
+    overlay_id: embedding_pipeline
+    template_paths:
+      - "template/{% if embedding_pipeline %}{{ python_package }}{% endif %}/embeddings"
+    requires:
+      - { expr: "db_qdrant", message: "Embedding pipeline requires Qdrant (V-4)." }
+      - { expr: "embedding_backend == 'fastembed' or llm_openai", message: "OpenAI embeddings need the OpenAI client; fastembed is offline (V-8)." }
+    python_deps:
+      "qdrant-client[fastembed]": { version: "1.19.0", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_EMBEDDING_BATCH_SIZE, type: int, required: false, default: 64, secret: false, description: "Ingestion batch size" }
+    fixtures:
+      - { name: embedding_client, kind: mock }
+    health_checks: [check_embedding_pipeline]
+    ci_steps: "Deterministic stub tests only. When tests_integration: reuses the qdrant service."
+    boots_test: "tests/overlays/test_embedding_pipeline_boots.py"
+    build_status: planned
+    milestone: 5
+    notes: "D-014: ships an offline fastembed client (via the qdrant-client[fastembed] extra, no separate dep) and an OpenAI embedding client (reuses the openai client, no extra dep). embedding_backend selects the default; embedding_vector_size feeds the Qdrant collection bootstrap. Anthropic has no embeddings API, so it is not an option."
+
+  embedding_backend:
+    key: embedding_backend
+    group: ai
+    prompt: "Embedding backend"
+    type: str
+    choices: { "fastembed offline (bge-small, 384)": fastembed, "OpenAI (text-embedding-3-small, 1536)": openai }
+    default: fastembed
+    when: "embedding_pipeline"
+    requires:
+      - { expr: "embedding_backend != 'openai' or llm_openai", message: "OpenAI embeddings need the OpenAI client." }
+    build_status: planned
+    milestone: 5
+    notes: "D-014. Sub-option of embedding_pipeline. fastembed uses the qdrant-client[fastembed] extra; openai reuses the openai client."
+
+  embedding_vector_size:
+    key: embedding_vector_size
+    group: ai
+    prompt: "Embedding vector size (Qdrant collection dimension)"
+    type: int
+    default: 384
+    when: "embedding_pipeline"
+    validator_rule: "must be a positive integer matching the chosen backend (fastembed bge-small=384, openai 3-small=1536, 3-large=3072)"
+    requires:
+      - { expr: "embedding_backend != 'fastembed' or embedding_vector_size == 384", message: "fastembed bge-small produces 384-dim vectors." }
+    build_status: planned
+    milestone: 5
+    notes: "D-014. Explicit, no inference. Qdrant collection bootstrap reads it."
+
+  langgraph:
+    key: langgraph
+    group: ai
+    prompt: "Add a minimal LangGraph stateful graph behind one route?"
+    type: bool
+    default: false
+    gate: "langgraph"
+    overlay_id: langgraph
+    template_paths:
+      - "template/{% if langgraph %}{{ python_package }}{% endif %}/langgraph"
+    requires:
+      - { expr: "db_postgres or db_redis", message: "LangGraph requires a Postgres or Redis checkpoint store (V-5)." }
+    python_deps:
+      langgraph: { version: "1.2.11", as_of: "2026-09-07" }
+      langgraph-checkpoint: { version: "4.2.0", as_of: "2026-09-07" }
+      langgraph-checkpoint-postgres: { version: "3.1.2", as_of: "2026-09-07" }
+      langgraph-checkpoint-redis:    { version: "0.5.2", as_of: "2026-09-07" }
+      psycopg:      { version: "3.3.5", as_of: "2026-09-07" }
+      psycopg-pool: { version: "3.3.1", as_of: "2026-09-07" }
+    env_vars: []
+    fixtures:
+      - { name: langgraph_app, kind: mock }
+    health_checks: [check_langgraph]
+    ci_steps: "Deterministic offline tests with stubbed LLM responses."
+    boots_test: "tests/overlays/test_langgraph_boots.py"
+    build_status: planned
+    milestone: 7
+    notes: "Minimal in v1 (D-006): one graph, one example node, one route, checkpoint to selected store. Fragment ships only the checkpoint dep for the selected store: langgraph-checkpoint-postgres + psycopg (psycopg3, separate from the db_postgres asyncpg driver) when postgres; langgraph-checkpoint-redis when redis. D-015: redis path needs redis-stack, see langgraph_checkpoint."
+
+  langgraph_checkpoint:
+    key: langgraph_checkpoint
+    group: ai
+    prompt: "LangGraph checkpoint store"
+    type: str
+    choices: [postgres, redis]
+    default: postgres
+    when: "langgraph"
+    requires:
+      - { expr: "(langgraph_checkpoint == 'postgres' and db_postgres) or (langgraph_checkpoint == 'redis' and db_redis)", message: "The chosen LangGraph checkpoint store must itself be enabled (V-9)." }
+    build_status: planned
+    milestone: 7
+    notes: "D-015: when 'redis', image_resolution rule IR-1 resolves the db_redis compose image to redis/redis-stack (RedisJSON + RediSearch). V-9 forces db_redis on in this case."
+
+  langsmith:
+    key: langsmith
+    group: ai
+    prompt: "Add LangSmith tracing hooks?"
+    type: bool
+    default: false
+    gate: "langsmith"
+    overlay_id: langsmith
+    template_paths:
+      - "template/{% if langsmith %}{{ python_package }}{% endif %}/observability/langsmith"
+    requires:
+      - { expr: "llm_openai or llm_anthropic", message: "LangSmith needs an LLM provider to trace (V-10)." }
+    python_deps:
+      langsmith: { version: "0.12.2", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_LANGSMITH_API_KEY, type: str, required: true, default: null, secret: true, description: "LangSmith API key" }
+      - { name: APP_LANGSMITH_PROJECT, type: str, required: false, default: "{{ service_slug }}", secret: false, description: "LangSmith project name" }
+      - { name: APP_LANGSMITH_TRACING, type: str, required: false, default: "true", secret: false, description: "Enable tracing" }
+    fixtures:
+      - { name: langsmith_tracer, kind: mock }
+    health_checks: []
+    ci_steps: "Tracing disabled in tests. No network calls."
+    boots_test: "tests/overlays/test_langsmith_boots.py"
+    build_status: planned
+    milestone: 5
+
+  # ---- testing -------------------------------------------------
+  tests_unit:
+    key: tests_unit
+    group: testing
+    prompt: "Unit test scaffolding (pytest + per-component mock fixtures)?"
+    type: bool
+    default: true
+    python_deps:
+      pytest:          { version: "9.1.1", as_of: "2026-09-07" }
+      pytest-asyncio:  { version: "1.4.0", as_of: "2026-09-07" }
+      pytest-cov:      { version: "7.1.0", as_of: "2026-09-07" }
+      anyio:           { version: "4.11.0", as_of: "2026-09-07" }
+    build_status: planned
+    milestone: 8
+
+  tests_integration:
+    key: tests_integration
+    group: testing
+    prompt: "Integration test scaffolding (pytest + testcontainers for selected deps)?"
+    type: bool
+    default: false
+    python_deps:
+      testcontainers: { version: "4.15.0", as_of: "2026-09-07" }
+    build_status: planned
+    milestone: 8
+    notes: "Which containers spin up is derived from selected datastores/broker."
+
+  tests_contract:
+    key: tests_contract
+    group: testing
+    prompt: "gRPC contract tests (multi-service only)?"
+    type: bool
+    default: false
+    when: "topology != 'single'"
+    requires:
+      - { expr: "topology != 'single' and transport_grpc", message: "Contract tests need multi-service topology and gRPC transport (V-11)." }
+    build_status: planned
+    milestone: 6
+
+  llm_response_mode:
+    key: llm_response_mode
+    group: testing
+    prompt: "LLM test response mode"
+    type: str
+    choices: { "httpx2 MockTransport": mock_transport, "local fake server via *_BASE_URL": fake_server }
+    default: mock_transport
+    when: "llm_openai or llm_anthropic or langchain or langgraph"
+    build_status: planned
+    milestone: 8
+    notes: "D-013: openai 3.x / anthropic 1.x / langsmith 0.12.x run on httpx2, so respx/pytest-httpx/vcrpy do NOT intercept. Stub via httpx2 MockTransport wrapped in the SDK's own client, or redirect *_BASE_URL to a local fake server. No live calls either way. LangChain offline paths use FakeListChatModel / GenericFakeChatModel."
+
+  # ---- observability -----------------------------------------
+  logging_structured:
+    key: logging_structured
+    group: observability
+    prompt: "Structured logging + correlation IDs?"
+    type: bool
+    default: true
+    python_deps:
+      structlog: { version: "26.1.0", as_of: "2026-09-07" }
+    build_status: planned
+    milestone: 2
+    notes: "Base-level. Key exists to allow opting out. D-011: correlation-ID middleware is vendored into the base, not an external dependency."
+
+  otel_tracing:
+    key: otel_tracing
+    group: observability
+    prompt: "OpenTelemetry tracing (SDK + FastAPI instrumentation + OTLP exporter)?"
+    type: bool
+    default: false
+    gate: "otel_tracing"
+    overlay_id: otel_tracing
+    template_paths:
+      - "template/{% if otel_tracing %}{{ python_package }}{% endif %}/observability/otel"
+    python_deps:
+      opentelemetry-sdk: { version: "1.44.0", as_of: "2026-09-07" }
+      opentelemetry-exporter-otlp-proto-http: { version: "1.44.0", as_of: "2026-09-07" }
+      opentelemetry-instrumentation-fastapi: { version: "0.65b0", as_of: "2026-09-07" }
+    env_vars:
+      - { name: APP_OTEL_EXPORTER_OTLP_ENDPOINT, type: str, required: false, default: "http://localhost:4318", secret: false, description: "OTLP HTTP/protobuf endpoint (D-011)" }
+      - { name: APP_OTEL_SERVICE_NAME, type: str, required: false, default: "{{ service_slug }}", secret: false, description: "Resource service.name" }
+    fixtures:
+      - { name: otel_span_exporter, kind: mock }
+    health_checks: []
+    ci_steps: "In-memory span exporter in tests. No collector needed."
+    boots_test: "tests/overlays/test_otel_tracing_boots.py"
+    build_status: implemented
+    milestone: 2
+    notes: "D-024: opt-in overlay (default false), built in Phase 1 by the Base Template Engineer alongside structured logging and health endpoints (scope §4.6 cross-cutting). Boots test passes; flipped to implemented 2026-09-08."
+
+  healthchecks:
+    key: healthchecks
+    group: observability
+    prompt: "computed"
+    type: bool
+    when: false
+    default: true
+    build_status: planned
+    milestone: 2
+    notes: "Health/readiness endpoints always present. Key exists for requires."
+
+  # ---- packaging -------------------------------------------
+  docker:
+    key: docker
+    group: packaging
+    prompt: "Dockerfile + docker-compose (only selected deps)?"
+    type: bool
+    default: true
+    build_status: planned
+    milestone: 2
+
+  ci:
+    key: ci
+    group: packaging
+    prompt: "CI pipeline template"
+    type: str
+    choices: { None: none, "GitHub Actions": github_actions }
+    default: github_actions
+    build_status: planned
+    milestone: 2
+
+  iac:
+    key: iac
+    group: packaging
+    prompt: "Infrastructure-as-code output"
+    type: str
+    choices: { None: none, "docker-compose only": compose_only }
+    default: none
+    build_status: planned
+    milestone: 2
+    notes: "Cloud-agnostic in v1 (D-003). Reserved key."
+
+  # ---- computed internals --------------------------------
+  # No leading underscore: Copier strips `_`-prefixed answer keys from `_copier_answers`,
+  # so an underscore name would never reach `.copier-answers.yml` and could not be audited
+  # (registry-schema.md 5.1). BaseTemplateEngineer verified this against Copier 9.18.2.
+  selected_overlays:
+    key: selected_overlays
+    group: base
+    prompt: "computed"
+    type: json
+    when: false
+    default: "{% from 'includes/answers_helpers.jinja' import selected_overlays with context %}{{ selected_overlays() }}"
+    build_status: planned
+    milestone: 2
+    notes: >-
+      Materialized audit of which overlays are on, in overlay_order sequence. The helper macro
+      already emits a JSON array string, so no `| tojson` (that would double-encode). The import
+      needs `with context` because the macro reads answer variables. Shared-file skeletons iterate
+      this recorded answer variable directly, not the macro.
+
+  registry_version:
+    key: registry_version
+    group: base
+    prompt: "computed"
+    type: int
+    when: false
+    default: 0
+    build_status: planned
+    milestone: 2
+    notes: "Stamped from meta.registry_version for `copier update` diagnostics. Non-underscore name so it is recorded in the answers file."
+
+# ---------------------------------------------------------------------------
+# Machine-checkable cross-key rules (scope section 5). See docs/registry-schema.md section 4.
+# A rule fails when applies_when is true and expr is false; message is shown to the user.
+validation_rules:
+  - id: V-1
+    description: "Multi-service topology requires at least one transport."
+    applies_when: "topology != 'single'"
+    expr: "transport_grpc or transport_rabbitmq"
+    message: "Enable gRPC and/or RabbitMQ inter-service transport."
+    attach_to: [transport_grpc, transport_rabbitmq, topology]
+  - id: V-2
+    description: "Tool scaffold requires an API layer."
+    applies_when: "tool_scaffold"
+    expr: "api_rest or api_grpc"
+    message: "Tool scaffold needs the REST API or the gRPC server."
+    attach_to: [tool_scaffold]
+  - id: V-3
+    description: "MCP server requires tool scaffold or gRPC."
+    applies_when: "mcp_server"
+    expr: "tool_scaffold or api_grpc"
+    message: "Enable the tool scaffold or the gRPC server."
+    attach_to: [mcp_server]
+  - id: V-4
+    description: "Embedding pipeline requires Qdrant."
+    applies_when: "embedding_pipeline"
+    expr: "db_qdrant"
+    message: "Enable Qdrant."
+    attach_to: [embedding_pipeline]
+  - id: V-5
+    description: "LangGraph requires a Postgres or Redis checkpoint store."
+    applies_when: "langgraph"
+    expr: "db_postgres or db_redis"
+    message: "Enable PostgreSQL or Redis for LangGraph checkpointing."
+    attach_to: [langgraph]
+  - id: V-6
+    description: "LangChain retrieval chain requires a vector store."
+    applies_when: "langchain_retrieval"
+    expr: "langchain and db_qdrant"
+    message: "Enable LangChain and Qdrant."
+    attach_to: [langchain_retrieval]
+  - id: V-7
+    description: "LangChain requires an LLM provider."
+    applies_when: "langchain"
+    expr: "llm_openai or llm_anthropic"
+    message: "Enable the OpenAI or Anthropic client."
+    attach_to: [langchain]
+  - id: V-8
+    description: "OpenAI embedding backend needs the OpenAI client; fastembed is offline (D-014)."
+    applies_when: "embedding_pipeline"
+    expr: "embedding_backend == 'fastembed' or (embedding_backend == 'openai' and llm_openai)"
+    message: "Pick fastembed, or enable the OpenAI client for the openai embedding backend."
+    attach_to: [embedding_pipeline, embedding_backend]
+  - id: V-9
+    description: "LangGraph checkpoint store must be enabled."
+    applies_when: "langgraph"
+    expr: "(langgraph_checkpoint == 'postgres' and db_postgres) or (langgraph_checkpoint == 'redis' and db_redis)"
+    message: "Enable the datastore you picked for LangGraph checkpointing."
+    attach_to: [langgraph_checkpoint]
+  - id: V-10
+    description: "LangSmith requires an LLM provider to trace."
+    applies_when: "langsmith"
+    expr: "llm_openai or llm_anthropic"
+    message: "Enable the OpenAI or Anthropic client."
+    attach_to: [langsmith]
+  - id: V-11
+    description: "gRPC contract tests need multi-service topology and gRPC transport."
+    applies_when: "tests_contract"
+    expr: "topology != 'single' and transport_grpc"
+    message: "Set a multi-service topology with gRPC transport."
+    attach_to: [tests_contract]
+  - id: V-12
+    description: "Redis pub/sub requires Redis."
+    applies_when: "redis_pubsub"
+    expr: "db_redis"
+    message: "Enable Redis."
+    attach_to: [redis_pubsub]
+  - id: V-13
+    description: "gRPC streaming requires the gRPC server overlay."
+    applies_when: "streaming_grpc"
+    expr: "api_grpc"
+    message: "Enable the gRPC server."
+    attach_to: [streaming_grpc]
+  - id: V-14
+    description: "SSE streaming requires the REST API."
+    applies_when: "streaming_sse"
+    expr: "api_rest"
+    message: "REST API is required for SSE."
+    attach_to: [streaming_sse]
+
+  # ---- topology / services_config rules (D-005, D-017, D-036) ------------
+  # V-15..V-20 carry `scope: services_config`: they are NOT Jinja booleans over
+  # the flat answer set and are NOT compiled into Copier `validator` blocks.
+  # They are structural predicates over the `services_config` map, evaluated by
+  # scripts/validate_registry.py `validate_services_config(answers)`, which the
+  # msvc-gen CLI runs before an orchestrated monorepo / multi_repo generation
+  # (D-036). `expr` here is a human-readable statement of the predicate, not an
+  # evaluable expression. Submap schema: docs/services-config-schema.md.
+  - id: V-15
+    description: "Every services_config key is a service declared in service_names."
+    applies_when: "topology != 'single'"
+    expr: "every key of services_config appears verbatim in service_names"
+    message: "services_config has an entry for a service not listed in service_names. Add the name to service_names or remove the entry."
+    scope: services_config
+    attach_to: [services_config]
+  - id: V-16
+    description: "Service names stay distinct after '-' -> '_' package normalization."
+    applies_when: "topology != 'single'"
+    expr: "service_names map to distinct python_package names"
+    message: "Two service names normalize to the same Python package. Rename one."
+    scope: services_config
+    attach_to: [services_config]
+  - id: V-17
+    description: "A per-service submap carries only known per-service keys."
+    applies_when: "topology != 'single'"
+    expr: "every key of every services_config submap is an allowed per-service key (docs/services-config-schema.md 2.2)"
+    message: "A services_config submap has an unknown or shared key. Only per-service overlay gates and their sub-options are allowed in a submap."
+    scope: services_config
+    attach_to: [services_config]
+  - id: V-18
+    description: "A gRPC inter-service transport needs at least one service exposing a gRPC server."
+    applies_when: "topology != 'single' and transport_grpc"
+    expr: "at least one service's effective submap enables api_grpc"
+    message: "transport_grpc is on but no service enables api_grpc - nothing to call. Set api_grpc on the server service's submap."
+    scope: services_config
+    attach_to: [services_config, transport_grpc]
+  - id: V-19
+    description: "A non-single topology has at least one service."
+    applies_when: "topology != 'single'"
+    expr: "service_names has at least one entry"
+    message: "service_names is empty for a multi-service topology."
+    scope: services_config
+    attach_to: [service_names]
+  - id: V-20
+    description: "Every service_names entry matches the service-name regex."
+    applies_when: "topology != 'single'"
+    expr: "every service_names entry matches ^[a-z][a-z0-9-]{1,48}$"
+    message: "A service name is not kebab-case (^[a-z][a-z0-9-]{1,48}$)."
+    scope: services_config
+    attach_to: [service_names]
+
+# ---------------------------------------------------------------------------
+# Deterministic image resolution for compose services whose tag depends on more than one answer.
+# The derivation script evaluates each rule and emits the resolved image into docker-compose.yml.
+# Rules are ordered; the first whose `when` is true wins for a given `service`.
+image_resolution:
+  - id: IR-1
+    description: "Redis compose image upgrade for a LangGraph Redis checkpoint store (D-015)."
+    service: redis
+    when: "db_redis and langgraph and langgraph_checkpoint == 'redis'"
+    image_ref: redis_stack        # resolved from compose_image_pins below
+    else_image_ref: redis_plain
+    notes: >-
+      Single compose redis service. langgraph-checkpoint-redis 0.5.2 needs RedisJSON + RediSearch.
+      V-9 already forces db_redis on whenever the checkpoint store is redis, so there is always
+      exactly one redis service to resolve. D-023: the concrete tags live in compose_image_pins
+      and are owned by the Data Layer Engineer, pinned with an as_of date in Phase 2.
+
+# Concrete compose image tags, one owner per row (D-023). Referenced by image_resolution and by
+# compose_services entries. Tags marked as_of: null are not yet pinned by their owner.
+compose_image_pins:
+  redis_plain:  { image: "redis:8.0", owner: data_layer_engineer, as_of: "2026-09-07" }
+  redis_stack:  { image: "redis/redis-stack:7.4.0-v8", owner: data_layer_engineer, as_of: "2026-09-08", notes: "Verified 2026-09-08: multi-arch, MODULE LIST shows ReJSON + search (what langgraph-checkpoint-redis needs), highest patch on the 7.4.0 line. IR-1 is currently implemented inline in template/_fragments/db_redis/compose.yml.jinja; if gen_copier_yml.py later exposes a computed resolved-image key the fragment should consume that instead of duplicating the rule." }
+
+# ---------------------------------------------------------------------------
+# Version-gated structural changes. Emitted to copier.yml as _migrations by the derivation script.
+# Empty in v0. Any future rename of a key, value, or rendered path adds an entry here.
+migrations: []

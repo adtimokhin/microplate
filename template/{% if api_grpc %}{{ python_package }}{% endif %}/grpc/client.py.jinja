@@ -1,0 +1,44 @@
+"""Client helpers for talking to the example service.
+
+``open_channel`` yields an insecure ``grpc.aio`` channel as an async context
+manager; ``example_stub`` wraps it and hands back an ``ExampleServiceStub``.
+Both default to the locally co-hosted server's address when one is running.
+"""
+
+# grpcio ships no type stubs / py.typed marker.
+# mypy: disable-error-code="import-untyped, no-untyped-call"
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
+import grpc
+
+from {{ python_package }}.grpc._pb.example.v1 import example_pb2_grpc
+from {{ python_package }}.grpc.server import get_runtime
+
+
+def _resolve_target(target: str | None) -> str:
+    if target is not None:
+        return target
+    runtime = get_runtime()
+    if runtime is None or not runtime.started:
+        raise RuntimeError("no target given and no local gRPC server is running")
+    return runtime.address
+
+
+@asynccontextmanager
+async def open_channel(target: str | None = None) -> AsyncIterator[Any]:
+    """Async-context-manage an insecure channel to ``target`` (or the local server)."""
+
+    async with grpc.aio.insecure_channel(_resolve_target(target)) as channel:
+        yield channel
+
+
+@asynccontextmanager
+async def example_stub(target: str | None = None) -> AsyncIterator[Any]:
+    """Yield an ``ExampleServiceStub`` bound to a fresh channel."""
+
+    async with open_channel(target) as channel:
+        yield example_pb2_grpc.ExampleServiceStub(channel)

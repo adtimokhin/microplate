@@ -1,0 +1,112 @@
+
+
+{% if llm_response_mode | default("mock_transport") == "fake_server" %}import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+
+class _OpenAIStubHandler(BaseHTTPRequestHandler):
+    """Canned Chat Completions response for any POST."""
+
+    def log_message(self, *_args: object) -> None:  # silence the default stderr log
+        return
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib handler name
+        self.rfile.read(int(self.headers.get("content-length", 0) or 0))
+        body = json.dumps(
+            {
+                "id": "chatcmpl-stub",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "This is a deterministic test summary.",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
+        ).encode()
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture(autouse=True)
+def openai_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Mock mode (fake_server): a local stub HTTP server stands in for the API (D-013)."""
+    from {{ python_package }}.config import get_settings
+
+    server = HTTPServer(("127.0.0.1", 0), _OpenAIStubHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}/v1"
+    monkeypatch.setenv("APP_LLM_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("APP_LLM_OPENAI_BASE_URL", base_url)
+    get_settings.cache_clear()
+    try:
+        yield base_url
+    finally:
+        server.shutdown()
+        server.server_close()
+        get_settings.cache_clear()
+{% else %}@pytest.fixture(autouse=True)
+def openai_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[object]:
+    """Mock mode: an httpx2 ``MockTransport`` wrapped in a real ``AsyncOpenAI`` (D-013).
+
+    ``init_client`` is patched so the app lifespan installs a client whose
+    transport returns canned Chat Completions JSON. No network, no real key.
+    Autouse so the whole suite gets the offline client and a set API key.
+    """
+    import httpx2
+    from openai import AsyncOpenAI, DefaultAsyncHttpxClient
+
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.llm.openai import client as client_mod
+
+    monkeypatch.setenv("APP_LLM_OPENAI_API_KEY", "test-key")
+    get_settings.cache_clear()
+
+    def _handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "id": "chatcmpl-stub",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "This is a deterministic test summary.",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            },
+        )
+
+    def _fake_init() -> AsyncOpenAI:
+        client_mod._client = AsyncOpenAI(
+            api_key="test-key",
+            http_client=DefaultAsyncHttpxClient(transport=httpx2.MockTransport(_handler)),
+            max_retries=0,
+        )
+        return client_mod._client
+
+    monkeypatch.setattr(client_mod, "init_client", _fake_init)
+    try:
+        yield client_mod
+    finally:
+        get_settings.cache_clear()
+{% endif %}

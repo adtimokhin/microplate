@@ -1,0 +1,53 @@
+# {{ repo_name }} (multi_repo service set)
+
+{{ services | length }} microservices generated as **independent repositories**
+(`topology: multi_repo`, D-005 / D-036). Each subdirectory is a standalone repo:
+its own `.copier-answers.yml`, `pyproject.toml`, `uv.lock`, `Dockerfile`, and
+`docker-compose.yml`. Move each into its own remote when you are ready.
+
+## Services
+
+| Service | Directory | Package |
+| --- | --- | --- |
+{%- for svc in services %}
+| `{{ svc.slug }}` | `{{ svc.name }}/` | `{{ svc.package }}` |
+{%- endfor %}
+
+## Inter-service transport
+
+{% if transport_grpc and transport_rabbitmq -%}
+gRPC and RabbitMQ are both wired. Peer endpoints are configured per service via
+`APP_PEER_<NAME>_URL` env vars (defaults point at the peer slug).
+{%- elif transport_grpc -%}
+gRPC is wired. Peer endpoints via `APP_PEER_<NAME>_URL` (default: the peer slug).
+{%- elif transport_rabbitmq -%}
+RabbitMQ is wired through a shared broker each repo connects to
+(`APP_RABBITMQ_URL`).
+{%- else -%}
+No inter-service transport selected yet.
+{%- endif %}
+
+{% if tests_contract -%}
+## Proto contract
+
+Each repo carries an identical copy of `proto/`. The contract job checks the
+shared definitions stay backward compatible across the set.
+{%- endif %}
+
+## Update from the template
+
+```bash
+msvc-gen update --output .
+```
+
+Re-runs `copier update` in every service repo and re-renders this manifest.
+
+## License
+
+{% if license == 'mit' -%}
+MIT
+{%- elif license == 'apache_2_0' -%}
+Apache-2.0
+{%- else -%}
+Proprietary and confidential.
+{%- endif %}

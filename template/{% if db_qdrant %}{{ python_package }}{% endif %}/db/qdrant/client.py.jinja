@@ -1,0 +1,81 @@
+"""Async client holder and collection bootstrap (research/data-layer.md).
+
+One :class:`~qdrant_client.AsyncQdrantClient` lives for the whole process, bound
+to the FastAPI lifespan. ``ensure_collection`` is idempotent: it is safe to run
+on every boot and in tests.
+"""
+
+from __future__ import annotations
+
+from qdrant_client import AsyncQdrantClient, models
+
+from {{ python_package }}.config import get_settings
+
+_client: AsyncQdrantClient | None = None
+
+
+def init_client() -> AsyncQdrantClient:
+    """Build the client. Idempotent within a process. Does not perform I/O."""
+
+    global _client
+
+    settings = get_settings()
+    _client = AsyncQdrantClient(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key or None,
+    )
+    return _client
+
+
+def get_client() -> AsyncQdrantClient:
+    """Return the process-wide client, or raise if the lifespan has not run."""
+
+    if _client is None:
+        raise RuntimeError("Qdrant client is not initialised; is the application lifespan running?")
+    return _client
+
+
+async def ensure_collection() -> None:
+    """Create the configured collection if it does not exist yet."""
+
+    client = get_client()
+    settings = get_settings()
+    if not await client.collection_exists(settings.qdrant_collection):
+        await client.create_collection(
+            collection_name=settings.qdrant_collection,
+            vectors_config=models.VectorParams(
+                size=settings.qdrant_vector_size,
+                distance=models.Distance.COSINE,
+            ),
+        )
+
+
+async def upsert(points: list[models.PointStruct]) -> None:
+    """Upsert points into the configured collection."""
+
+    await get_client().upsert(
+        collection_name=get_settings().qdrant_collection,
+        points=points,
+    )
+
+
+async def search(vector: list[float], limit: int = 10) -> list[models.ScoredPoint]:
+    """Nearest-neighbour search in the configured collection."""
+
+    response = await get_client().query_points(
+        collection_name=get_settings().qdrant_collection,
+        query=vector,
+        limit=limit,
+        with_payload=True,
+    )
+    return response.points
+
+
+async def close_client() -> None:
+    """Close the client."""
+
+    global _client
+
+    if _client is not None:
+        await _client.close()
+    _client = None

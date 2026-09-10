@@ -1,0 +1,35 @@
+{% if transport_grpc or (services | selectattr('has_api_grpc') | list) -%}
+syntax = "proto3";
+
+package example.v1;
+
+// Shared inter-service contract for this {{ topology }} mesh (D-036).
+//
+// This is the canonical copy. Every service that exposes a gRPC server
+// (`api_grpc` in its submap) also carries its own proto/ for local stub
+// regeneration; the `tests_contract` job runs `buf lint` + `buf breaking`
+// against THIS tree so a wire-breaking change fails CI for the whole mesh.
+service ExampleService {
+  // Unary: echo a greeting back to the caller.
+  rpc Greet(GreetRequest) returns (GreetReply);
+
+  // Server streaming: emit `count` sequential ticks.
+  rpc Ticks(TicksRequest) returns (stream Tick);
+}
+
+message GreetRequest {
+  string name = 1;
+}
+
+message GreetReply {
+  string message = 1;
+}
+
+message TicksRequest {
+  uint32 count = 1;
+}
+
+message Tick {
+  uint32 index = 1;
+}
+{%- endif %}

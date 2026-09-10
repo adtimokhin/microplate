@@ -1,0 +1,13 @@
+"""SSE streaming overlay.
+
+Contributes a ``GET /stream/sse`` endpoint built on ``sse-starlette``. The
+lifespan startup hook (``_fragments/streaming_sse/lifespan.py.jinja``) mounts
+``router`` on the app, since the base ``api/router.py`` is not overlay-editable.
+See ``overlays/streaming_sse/OVERLAY.md``.
+"""
+
+from __future__ import annotations
+
+from .routes import router
+
+__all__ = ["router"]

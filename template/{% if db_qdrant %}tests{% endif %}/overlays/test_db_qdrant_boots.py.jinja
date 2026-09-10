@@ -1,0 +1,29 @@
+"""Proves the db_qdrant overlay is wired into the running app (overlay-contract 7).
+
+Mock mode (default): an in-process ``:memory:`` client backs it, so collection
+bootstrap and the health check run offline. Integration mode
+(``tests_integration``): a real Qdrant container backs it.
+"""
+
+from __future__ import annotations
+
+from qdrant_client import AsyncQdrantClient
+
+from {{ python_package }}.config import get_settings
+from {{ python_package }}.db.qdrant.client import get_client
+from {{ python_package }}.health import check_db_qdrant
+from {{ python_package }}.lifespan import lifespan
+from {{ python_package }}.main import app
+
+
+async def test_db_qdrant_boots(qdrant_client: object) -> None:
+    async with lifespan(app):
+        client = getattr(app.state, "db_qdrant", None)
+        assert client is not None, "db_qdrant client missing from app.state"
+        assert isinstance(client, AsyncQdrantClient)
+        assert client is get_client()
+
+        assert await client.collection_exists(get_settings().qdrant_collection)
+
+        result = await check_db_qdrant()
+        assert result.healthy, result

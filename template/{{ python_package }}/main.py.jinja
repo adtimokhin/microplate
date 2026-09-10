@@ -1,0 +1,40 @@
+"""Application entrypoint.
+
+``create_app()`` is a factory so tests can build isolated instances. The module
+level ``app`` is what ``fastapi run {{ python_package }}/main.py`` serves.
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+
+from {{ python_package }} import __version__
+from {{ python_package }}.api import api_router
+from {{ python_package }}.config import get_settings
+from {{ python_package }}.health import router as health_router
+from {{ python_package }}.lifespan import lifespan
+from {{ python_package }}.logging_config import configure_logging
+from {{ python_package }}.middleware import CorrelationIdMiddleware
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    configure_logging(json_logs=settings.json_logs, level=settings.log_level)
+
+    app = FastAPI(
+        title="{{ service_name }}",
+        version=__version__,
+        lifespan=lifespan,
+    )
+
+    # Outermost middleware: every downstream log line and the access log carry
+    # the correlation id.
+    app.add_middleware(CorrelationIdMiddleware)
+
+    app.include_router(health_router)
+    app.include_router(api_router)
+
+    return app
+
+
+app = create_app()

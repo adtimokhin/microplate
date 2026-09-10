@@ -1,0 +1,4 @@
+    from {{ python_package }}.streaming.sse import router as _sse_router
+
+    api_router.include_router(_sse_router)
+

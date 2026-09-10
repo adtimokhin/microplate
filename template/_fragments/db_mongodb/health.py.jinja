@@ -1,0 +1,14 @@
+
+
+async def check_db_mongodb() -> HealthResult:
+    """Readiness probe: the ``ping`` admin command (no auth, any database)."""
+    from {{ python_package }}.db.mongodb.client import get_client
+
+    try:
+        await get_client().admin.command("ping")
+    except Exception as exc:  # readiness must never raise
+        return HealthResult(name="db_mongodb", healthy=False, detail=repr(exc))
+    return HealthResult(name="db_mongodb", healthy=True)
+
+
+READINESS_CHECKS.append(check_db_mongodb)

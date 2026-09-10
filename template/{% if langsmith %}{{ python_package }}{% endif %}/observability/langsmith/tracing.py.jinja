@@ -1,0 +1,72 @@
+"""LangSmith tracing configuration (overlay: langsmith).
+
+``@traceable`` from ``langsmith`` is a zero-overhead pass-through whenever
+``LANGSMITH_TRACING`` is not ``"true"`` (research/ai-stack.md 6): the decorator
+returns the wrapped function unchanged and makes no network call. So the
+generated handlers can carry ``@traceable`` unconditionally; it costs nothing
+until an operator turns tracing on.
+
+:func:`configure` runs at app startup. It reads ``APP_LANGSMITH_*`` from the base
+settings loader and, when tracing is enabled, exports the ``LANGSMITH_*`` names
+the SDK actually reads. When tracing is disabled it removes ``LANGSMITH_TRACING``
+so the decorator stays inert. It never opens a connection.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+
+from {{ python_package }}.config import get_settings
+
+_SDK_ENV_KEYS = ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT")
+
+
+@dataclass(frozen=True)
+class TracingConfig:
+    """Resolved tracing state. Mirrored onto ``app.state.langsmith``."""
+
+    enabled: bool
+    project: str
+
+
+_config: TracingConfig | None = None
+
+
+def set_tracing_config(config: TracingConfig) -> None:
+    """Install the process-wide tracing config (called by the startup hook)."""
+
+    global _config
+    _config = config
+
+
+def get_tracing_config() -> TracingConfig:
+    """Return the process-wide tracing config, or raise if startup has not run."""
+
+    if _config is None:
+        raise RuntimeError(
+            "LangSmith tracing is not configured; is the application lifespan running?"
+        )
+    return _config
+
+
+def configure() -> TracingConfig:
+    """Resolve tracing state from settings and export the SDK env vars.
+
+    Idempotent and I/O-free. Returns the :class:`TracingConfig` and also stores
+    it as the process-wide value.
+    """
+
+    settings = get_settings()
+    enabled = settings.langsmith_tracing.strip().lower() == "true"
+
+    if enabled:
+        os.environ["LANGSMITH_TRACING"] = "true"
+        os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key
+        os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+    else:
+        os.environ.pop("LANGSMITH_TRACING", None)
+
+    config = TracingConfig(enabled=enabled, project=settings.langsmith_project)
+    set_tracing_config(config)
+    return config

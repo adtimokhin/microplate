@@ -31,8 +31,8 @@ While the major is `0`:
 
 `meta.registry_version` in `registry.yaml` is a separate integer. Bump it only on
 a breaking change to the registry file's own shape (schema of the schema), not on
-every release. It is stamped into generated answers files as `_registry_version`
-for update diagnostics.
+every release. It is stamped into generated answers files as `registry_version`
+(no leading underscore, so Copier records it) for update diagnostics.
 
 ## Cutting a release
 

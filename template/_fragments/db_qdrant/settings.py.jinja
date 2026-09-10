@@ -1,0 +1,4 @@
+    qdrant_url: str = "http://qdrant:6333"
+    qdrant_api_key: str | None = None
+    qdrant_collection: str = "{{ service_slug }}"
+    qdrant_vector_size: int = {{ embedding_vector_size | default(384) }}

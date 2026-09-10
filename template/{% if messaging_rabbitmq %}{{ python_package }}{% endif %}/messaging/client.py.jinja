@@ -1,0 +1,142 @@
+"""Robust RabbitMQ connection wrapper.
+
+``connect_robust`` gives transparent auto-reconnect with full state recovery:
+channels, exchanges, queues, bindings, consumers, QoS and publisher-confirm mode
+are all restored after a network blip. Always go through the robust variants; a
+plain ``connect()`` surfaces ``ConnectionClosed`` to the caller on loss.
+
+The initial connect is bounded by ``timeout``; the lifespan hook swallows a
+failure so a broker that is not up yet does not block startup, and the readiness
+check retries ``connect`` on every probe so the service self-heals once the
+broker appears. ``set_connection_factory`` is the only test seam; the mock
+conftest fixture swaps in a fake so ``uv run pytest`` never opens a socket.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+
+import aio_pika
+from aio_pika import Message
+from aio_pika.abc import (
+    AbstractChannel,
+    AbstractIncomingMessage,
+    AbstractRobustConnection,
+    HeadersType,
+)
+
+from .topology import TopologyConfig, declare_topology
+
+ConnectionFactory = Callable[..., Awaitable[AbstractRobustConnection]]
+
+
+async def _default_factory(url: str) -> AbstractRobustConnection:
+    return await aio_pika.connect_robust(url, timeout=10)
+
+
+_connection_factory: ConnectionFactory = _default_factory
+
+
+def set_connection_factory(factory: ConnectionFactory | None) -> None:
+    """Override how :meth:`RabbitMQ.connect` opens its connection.
+
+    Pass ``None`` to restore the real ``aio_pika.connect_robust`` path.
+    """
+
+    global _connection_factory
+    _connection_factory = factory or _default_factory
+
+
+class RabbitMQ:
+    """One robust connection plus a publish channel and a consume channel.
+
+    Publisher confirms are on by default at the channel level: ``publish`` waits
+    for the broker ack and ``aio_pika.exceptions.DeliveryError`` is raised on a
+    nack.
+    """
+
+    def __init__(self, url: str, *, prefetch_count: int = 10) -> None:
+        self._url = url
+        self._prefetch_count = prefetch_count
+        self._connection: AbstractRobustConnection | None = None
+        self._publish_channel: AbstractChannel | None = None
+        self._consume_channel: AbstractChannel | None = None
+
+    @property
+    def connection(self) -> AbstractRobustConnection:
+        if self._connection is None:
+            raise RuntimeError("RabbitMQ.connect() has not run")
+        return self._connection
+
+    @property
+    def is_healthy(self) -> bool:
+        conn = self._connection
+        return conn is not None and not conn.is_closed
+
+    async def connect(self) -> None:
+        """Open the robust connection. Idempotent; does not raise on a down broker."""
+
+        if self._connection is not None and not self._connection.is_closed:
+            return
+        self._connection = await _connection_factory(self._url)
+
+    async def _publish_ch(self) -> AbstractChannel:
+        if self._publish_channel is None:
+            self._publish_channel = await self.connection.channel()
+        return self._publish_channel
+
+    async def _consume_ch(self) -> AbstractChannel:
+        if self._consume_channel is None:
+            channel = await self.connection.channel()
+            await channel.set_qos(prefetch_count=self._prefetch_count)
+            self._consume_channel = channel
+        return self._consume_channel
+
+    async def declare(self, config: TopologyConfig | None = None) -> TopologyConfig:
+        """Declare the dead-letter + retry topology on the consume channel."""
+
+        return await declare_topology(await self._consume_ch(), config)
+
+    async def close(self) -> None:
+        if self._connection is not None and not self._connection.is_closed:
+            await self._connection.close()
+        self._connection = None
+        self._publish_channel = None
+        self._consume_channel = None
+
+    async def publish(
+        self,
+        exchange: str,
+        routing_key: str,
+        body: bytes,
+        *,
+        content_type: str = "application/json",
+        headers: HeadersType | None = None,
+        timeout: float = 5.0,
+    ) -> None:
+        """Publish with confirms and ``mandatory=True``.
+
+        Raises ``aio_pika.exceptions.DeliveryError`` on a broker nack,
+        ``asyncio.TimeoutError`` if no confirm arrives within ``timeout``.
+        """
+
+        channel = await self._publish_ch()
+        ex = await channel.declare_exchange(exchange, aio_pika.ExchangeType.TOPIC, durable=True)
+        message = Message(
+            body,
+            content_type=content_type,
+            delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+            headers=headers,
+        )
+        await ex.publish(message, routing_key=routing_key, mandatory=True, timeout=timeout)
+
+    async def consume(
+        self,
+        queue_name: str,
+        handler: Callable[[AbstractIncomingMessage], Awaitable[None]],
+    ) -> str:
+        """Attach ``handler`` to ``queue_name`` with manual ack. Returns the consumer tag."""
+
+        channel = await self._consume_ch()
+        queue = await channel.get_queue(queue_name, ensure=False)
+        return await queue.consume(handler)

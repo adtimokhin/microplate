@@ -1,0 +1,10 @@
+# One overlay selected (otel_tracing). Exercises _fragments exclusion AND the
+# rendered tests/overlays/ boots-test subtree - the zero-overlay file cannot.
+service_name: otel-svc
+license: proprietary
+otel_tracing: true
+tests_unit: true
+tests_integration: false
+logging_structured: true
+docker: true
+ci: github_actions

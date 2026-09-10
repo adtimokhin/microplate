@@ -1,0 +1,5 @@
+"""OpenTelemetry tracing overlay."""
+
+from .tracing import instrument_app, setup_tracing, shutdown_tracing
+
+__all__ = ["instrument_app", "setup_tracing", "shutdown_tracing"]

@@ -1,0 +1,41 @@
+
+
+{% if tests_integration %}@pytest.fixture
+def qdrant_container() -> Iterator[str]:
+    """Real Qdrant v1.19.1 via testcontainers. Yields the REST URL."""
+    from testcontainers.qdrant import QdrantContainer
+
+    with QdrantContainer("qdrant/qdrant:v1.19.1") as container:
+        yield container.get_rest_url()
+
+
+@pytest.fixture
+def qdrant_client(qdrant_container: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Point settings at the live container and reset the settings cache."""
+    from {{ python_package }}.config import get_settings
+
+    monkeypatch.setenv("APP_QDRANT_URL", qdrant_container)
+    get_settings.cache_clear()
+    try:
+        yield qdrant_container
+    finally:
+        get_settings.cache_clear()
+{% else %}@pytest.fixture(autouse=True)
+def qdrant_client(monkeypatch: pytest.MonkeyPatch) -> object:
+    """Mock-mode client: an in-process ``:memory:`` Qdrant (no server, no container).
+
+    Autouse so every test sees a working, healthy vector store. ``init_client`` is
+    patched so the app lifespan installs the in-memory client; it is a real
+    ``AsyncQdrantClient``, so ``isinstance`` and ``ensure_collection`` both work.
+    """
+    from qdrant_client import AsyncQdrantClient
+
+    from {{ python_package }}.db.qdrant import client as client_mod
+
+    def _fake_init() -> AsyncQdrantClient:
+        client_mod._client = AsyncQdrantClient(location=":memory:")
+        return client_mod._client
+
+    monkeypatch.setattr(client_mod, "init_client", _fake_init)
+    return client_mod
+{% endif %}

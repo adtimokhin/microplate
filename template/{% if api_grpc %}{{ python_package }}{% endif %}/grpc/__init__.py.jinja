@@ -1,0 +1,26 @@
+"""gRPC server overlay.
+
+An asyncio (``grpc.aio``) server co-hosted in the FastAPI lifespan: one unary
+method and one server-streaming method on ``example.v1.ExampleService``, the
+standard ``grpc.health.v1`` health service, and server reflection. See
+``overlays/api_grpc/OVERLAY.md``.
+
+Protobuf message and stub modules under ``_pb/`` are committed, generated output
+(D-009). Regenerate them with ``python proto/regen_proto.py``; CI runs that and
+``git diff --exit-code`` so they can never drift from ``proto/``.
+"""
+
+from __future__ import annotations
+
+from .client import example_stub, open_channel
+from .server import GrpcRuntime, get_runtime, set_runtime
+from .service import ExampleServicer
+
+__all__ = [
+    "ExampleServicer",
+    "GrpcRuntime",
+    "example_stub",
+    "get_runtime",
+    "open_channel",
+    "set_runtime",
+]

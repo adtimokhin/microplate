@@ -1,0 +1,14 @@
+"""gRPC inter-service transport: peer discovery by service name.
+
+``PEERS`` is the frozen tuple of the other services in this mesh (from
+``service_names``). ``peer_target`` resolves a peer's ``host:port`` from
+settings; ``peer_channel`` hands back an insecure ``grpc.aio`` channel to it.
+
+A service exposes its own gRPC server only if its submap sets ``api_grpc``
+(see the ``api_grpc`` overlay). This module is the client side that every
+service in a ``transport_grpc`` mesh gets.
+"""
+
+from {{ python_package }}.transport.grpc.peers import PEERS, peer_channel, peer_target
+
+__all__ = ["PEERS", "peer_channel", "peer_target"]

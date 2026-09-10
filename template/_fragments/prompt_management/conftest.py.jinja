@@ -1,0 +1,23 @@
+
+
+@pytest.fixture(autouse=True)
+def prompt_registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[object]:
+    """Point ``APP_PROMPTS_DIR`` at the shipped ``prompts/`` dir by absolute path.
+
+    Autouse so the loader works regardless of the pytest working directory. The
+    prompt files are committed into the generated project, so this needs no
+    network and no fixture data of its own.
+    """
+    from pathlib import Path
+
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.prompts import registry as registry_mod
+
+    prompts_dir = Path(__file__).resolve().parent.parent / "prompts"
+    monkeypatch.setenv("APP_PROMPTS_DIR", str(prompts_dir))
+    get_settings.cache_clear()
+    try:
+        yield registry_mod
+    finally:
+        registry_mod.set_registry(registry_mod.PromptRegistry())
+        get_settings.cache_clear()

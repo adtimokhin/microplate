@@ -1,0 +1,17 @@
+
+
+async def _langsmith_startup(app: FastAPI) -> None:
+    from {{ python_package }}.observability.langsmith.tracing import configure
+
+    app.state.langsmith = configure()
+
+
+async def _langsmith_shutdown(app: FastAPI) -> None:
+    import os
+
+    for _key in ("LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT"):
+        os.environ.pop(_key, None)
+
+
+STARTUP_HOOKS.append(_langsmith_startup)
+SHUTDOWN_HOOKS.append(_langsmith_shutdown)

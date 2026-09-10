@@ -1,0 +1,26 @@
+"""Proves the db_postgres overlay is wired into the running app (overlay-contract 7).
+
+Mock mode (default): ``init_engine`` is replaced with a spec'd AsyncMock, so no
+pool is opened and the check's ``SELECT 1`` path is exercised offline.
+Integration mode (``tests_integration``): a real PostgreSQL container backs it.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from {{ python_package }}.db.postgres.engine import get_engine
+from {{ python_package }}.health import check_db_postgres
+from {{ python_package }}.lifespan import lifespan
+from {{ python_package }}.main import app
+
+
+async def test_db_postgres_boots(postgres_session: object) -> None:
+    async with lifespan(app):
+        engine = getattr(app.state, "db_postgres", None)
+        assert engine is not None, "db_postgres engine missing from app.state"
+        assert isinstance(engine, AsyncEngine)
+        assert engine is get_engine()
+
+        result = await check_db_postgres()
+        assert result.healthy, result

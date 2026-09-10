@@ -1,0 +1,66 @@
+{%- from 'includes/fragment_loops.jinja' import include_slot with context -%}
+"""Liveness and readiness.
+
+* ``GET /health/live``  - process is up. No dependency checks. Always cheap.
+* ``GET /health/ready`` - every registered readiness check passed. Returns 200
+  when ready, 503 with a per-check body otherwise.
+
+Base-owned shared file (overlay-contract 4.3). Overlays add one async check
+function through ``_fragments/<overlay-id>/health.py.jinja`` and append it to
+``READINESS_CHECKS``. The list is walked in ``overlay_order``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+
+from fastapi import APIRouter, Response, status
+
+router = APIRouter(tags=["health"])
+
+
+@dataclass(frozen=True)
+class HealthResult:
+    """Outcome of a single readiness check."""
+
+    name: str
+    healthy: bool
+    detail: str = ""
+
+
+ReadinessCheck = Callable[[], Awaitable[HealthResult]]
+
+# Overlays append their check callables here, in overlay_order.
+READINESS_CHECKS: list[ReadinessCheck] = []
+
+# --- overlay readiness checks (assembled in overlay_order) -------------------
+{{ include_slot('health.py') }}
+
+async def _run_check(check: ReadinessCheck) -> HealthResult:
+    try:
+        return await check()
+    except Exception as exc:  # a check must never break readiness itself
+        name = getattr(check, "__name__", "check")
+        return HealthResult(name=name, healthy=False, detail=repr(exc))
+
+
+async def readiness() -> tuple[bool, dict[str, dict[str, object]]]:
+    """Run every readiness check concurrently and aggregate the results."""
+
+    results = await asyncio.gather(*(_run_check(check) for check in READINESS_CHECKS))
+    body = {r.name: {"healthy": r.healthy, "detail": r.detail} for r in results}
+    return all(r.healthy for r in results), body
+
+
+@router.get("/health/live")
+async def live() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@router.get("/health/ready")
+async def ready(response: Response) -> dict[str, object]:
+    ok, checks = await readiness()
+    response.status_code = status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    return {"status": "ready" if ok else "not_ready", "checks": checks}

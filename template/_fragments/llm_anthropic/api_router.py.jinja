@@ -1,0 +1,4 @@
+    from {{ python_package }}.llm.anthropic.routes import router as _llm_anthropic_router
+
+    api_router.include_router(_llm_anthropic_router)
+

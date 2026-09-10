@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Regenerate the committed gRPC Python stubs.
+
+Deterministic by construction (D-009):
+
+* pinned toolchain - ``grpcio-tools`` and ``protobuf`` are pinned in
+  ``pyproject.toml``; this script only ever runs the versions installed there.
+* fixed input - every ``*.proto`` under ``proto/`` in sorted order.
+* repo-relative paths only - no absolute path reaches protoc, so nothing
+  machine-specific is embedded in the output.
+* post-processing is a pure text transform (relative import + lint/type
+  headers) followed by ``ruff format``.
+
+CI runs ``python proto/regen_proto.py`` then ``git diff --exit-code`` so the
+committed stubs can never fall out of sync with the ``.proto`` files.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PROTO_ROOT = ROOT / "proto"
+OUT_DIR = ROOT / "{{ python_package }}" / "grpc" / "_pb"
+HEADER = "# ruff: noqa\n# mypy: ignore-errors\n"
+_REL_IMPORT = re.compile(r"^from [\w.]+ import (\w+_pb2) as", re.MULTILINE)
+_GENERATED_SUFFIXES = (".py", ".pyi")
+
+
+def _generated_sources() -> list[Path]:
+    """Every generated stub file, sorted, excluding bytecode and caches."""
+
+    return sorted(
+        p
+        for p in OUT_DIR.rglob("*_pb2*")
+        if p.suffix in _GENERATED_SUFFIXES and "__pycache__" not in p.parts
+    )
+
+
+def _proto_files() -> list[str]:
+    return sorted(str(p.relative_to(PROTO_ROOT)) for p in PROTO_ROOT.rglob("*.proto"))
+
+
+def _run(cmd: list[str]) -> None:
+    print("+", " ".join(cmd))
+    subprocess.run(cmd, cwd=ROOT, check=True)
+
+
+def main() -> int:
+    protos = _proto_files()
+    if not protos:
+        print("no .proto files under proto/", file=sys.stderr)
+        return 1
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            sys.executable,
+            "-m",
+            "grpc_tools.protoc",
+            "-Iproto",
+            f"--python_out={OUT_DIR.relative_to(ROOT)}",
+            f"--pyi_out={OUT_DIR.relative_to(ROOT)}",
+            f"--grpc_python_out={OUT_DIR.relative_to(ROOT)}",
+            *protos,
+        ]
+    )
+
+    generated = _generated_sources()
+    for path in generated:
+        text = path.read_text()
+        text = _REL_IMPORT.sub(r"from . import \1 as", text)
+        if not text.startswith(HEADER):
+            text = HEADER + text
+        path.write_text(text)
+
+    # every directory from OUT_DIR down to each generated file must be a package
+    pkg_dirs = {OUT_DIR}
+    for path in generated:
+        for parent in path.parents:
+            pkg_dirs.add(parent)
+            if parent == OUT_DIR:
+                break
+    for pkg_dir in pkg_dirs:
+        init = pkg_dir / "__init__.py"
+        if not init.exists():
+            init.write_text("")
+
+    _run(["ruff", "format", str(OUT_DIR.relative_to(ROOT))])
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

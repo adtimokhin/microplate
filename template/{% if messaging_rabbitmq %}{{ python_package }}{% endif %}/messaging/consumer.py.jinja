@@ -1,0 +1,94 @@
+"""Consumer wrapper with dead-letter backed retry.
+
+Wire it to the work queue declared by :func:`declare_topology`. On a transient
+failure the message is ``nack``-ed without requeue, so the broker routes it
+through the DLX to the retry queue, where it waits ``retry_backoff_ms`` before
+returning to the work queue. Once :func:`delivery_attempts` reaches
+``max_attempts`` (or the handler raises :class:`PermanentError`) the message is
+published to the terminal dead queue and acked, so it stops cycling.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+
+from aio_pika.abc import AbstractIncomingMessage
+
+from .client import RabbitMQ
+from .topology import TopologyConfig
+
+
+class PermanentError(Exception):
+    """Raised by a handler for a failure that must not be retried."""
+
+
+Handler = Callable[[AbstractIncomingMessage], Awaitable[None]]
+
+
+def delivery_attempts(message: AbstractIncomingMessage, retry_queue: str) -> int:
+    """How many times this message has been delivered to the work queue.
+
+    RabbitMQ appends an ``x-death`` entry per dead-letter event. The ``count`` on
+    the entry for the retry queue is the number of completed retry cycles, so the
+    current attempt number is that count plus one.
+    """
+
+    headers = message.headers or {}
+    x_death = headers.get("x-death")
+    if not isinstance(x_death, list):
+        return 1
+    for entry in x_death:
+        if isinstance(entry, dict) and entry.get("queue") == retry_queue:
+            count = entry.get("count", 0)
+            return count + 1 if isinstance(count, int) else 1
+    return 1
+
+
+def consume_with_retry(
+    rabbitmq: RabbitMQ,
+    handler: Handler,
+    config: TopologyConfig | None = None,
+) -> Callable[[AbstractIncomingMessage], Awaitable[None]]:
+    """Build an on-message callback that applies the retry / dead-letter policy.
+
+    Pass the return value to :meth:`RabbitMQ.consume`.
+    """
+
+    cfg = config or TopologyConfig()
+
+    async def on_message(message: AbstractIncomingMessage) -> None:
+        attempt = delivery_attempts(message, cfg.retry_queue)
+        if attempt > cfg.max_attempts:
+            await _park(message, cfg, rabbitmq, reason="max attempts exceeded")
+            return
+        try:
+            await handler(message)
+        except PermanentError:
+            await _park(message, cfg, rabbitmq, reason="permanent error")
+        except Exception:  # noqa: BLE001 - transient: route through the retry queue
+            await message.nack(requeue=False)
+        else:
+            await message.ack()
+
+    return on_message
+
+
+async def _park(
+    message: AbstractIncomingMessage,
+    cfg: TopologyConfig,
+    rabbitmq: RabbitMQ,
+    *,
+    reason: str,
+) -> None:
+    """Publish a spent message to the terminal dead queue and ack the original."""
+
+    headers = dict(message.headers or {})
+    headers["x-death-reason"] = reason
+    await rabbitmq.publish(
+        cfg.dlx,
+        cfg.dead_routing_key,
+        message.body,
+        content_type=message.content_type or "application/octet-stream",
+        headers=headers,
+    )
+    await message.ack()

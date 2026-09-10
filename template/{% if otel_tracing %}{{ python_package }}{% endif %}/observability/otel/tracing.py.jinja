@@ -1,0 +1,80 @@
+"""OpenTelemetry tracing setup (overlay: otel_tracing).
+
+Manual, in-process setup (no ``opentelemetry-instrument`` launcher, so the run
+command is unchanged). OTLP HTTP/protobuf exporter, default endpoint
+``http://localhost:4318`` (D-011).
+
+``set_test_span_exporter`` is a seam for deterministic tests: when an exporter is
+registered, :func:`setup_tracing` wires it through a ``SimpleSpanProcessor``
+instead of the OTLP exporter, so spans are captured in memory with no collector.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+    from opentelemetry.sdk.trace.export import SpanExporter
+
+_EXCLUDED_URLS = "health/live,health/ready"
+
+_test_span_exporter: SpanExporter | None = None
+_provider: TracerProvider | None = None
+
+
+def set_test_span_exporter(exporter: SpanExporter | None) -> None:
+    """Register (or clear) an in-memory exporter for tests. Not for production."""
+
+    global _test_span_exporter
+    _test_span_exporter = exporter
+
+
+def setup_tracing(*, service_name: str, environment: str, endpoint: str) -> TracerProvider:
+    """Build a TracerProvider and install it as the global provider."""
+
+    global _provider
+
+    resource = Resource.create(
+        {
+            "service.name": service_name,
+            "deployment.environment.name": environment,
+        }
+    )
+    provider = TracerProvider(resource=resource)
+    if _test_span_exporter is not None:
+        provider.add_span_processor(SimpleSpanProcessor(_test_span_exporter))
+    else:
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
+
+    trace.set_tracer_provider(provider)
+    _provider = provider
+    return provider
+
+
+def instrument_app(app: FastAPI) -> None:
+    """Attach FastAPI request instrumentation. Health probes are excluded.
+
+    ``instrument_app`` overrides ``build_middleware_stack``. When it runs from a
+    lifespan startup hook the stack has usually been built already, so the
+    cached stack is dropped and rebuilt on the next request.
+    """
+
+    FastAPIInstrumentor.instrument_app(app, excluded_urls=_EXCLUDED_URLS)
+    app.middleware_stack = None
+
+
+def shutdown_tracing() -> None:
+    """Flush and shut down the provider (called from the lifespan shutdown hook)."""
+
+    global _provider
+    if _provider is not None:
+        _provider.shutdown()
+        _provider = None

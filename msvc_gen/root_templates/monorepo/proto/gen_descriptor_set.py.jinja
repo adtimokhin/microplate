@@ -1,0 +1,53 @@
+{% if tests_contract -%}
+#!/usr/bin/env python3
+"""No-toolchain fallback for the gRPC contract check (docs/grpc-contract-tests.md).
+
+For teams that will not add the `buf` binary to CI. Generates a canonical
+FileDescriptorSet from every `proto/**/*.proto` in sorted order using the
+already-pinned `grpcio-tools` / `protobuf` (D-009), writing `proto/descriptor.pb`.
+
+Usage:
+    python proto/gen_descriptor_set.py          # regenerate proto/descriptor.pb
+
+CI then runs this and `git diff --exit-code proto/descriptor.pb`: any proto
+change that alters the descriptor set fails until the snapshot is refreshed in
+the same PR, forcing a human to look at the change.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PROTO_ROOT = ROOT / "proto"
+OUT = PROTO_ROOT / "descriptor.pb"
+
+
+def _proto_files() -> list[str]:
+    return sorted(str(p.relative_to(PROTO_ROOT)) for p in PROTO_ROOT.rglob("*.proto"))
+
+
+def main() -> int:
+    protos = _proto_files()
+    if not protos:
+        print("no .proto files under proto/", file=sys.stderr)
+        return 1
+    cmd = [
+        sys.executable,
+        "-m",
+        "grpc_tools.protoc",
+        "-Iproto",
+        f"--descriptor_set_out={OUT.relative_to(ROOT)}",
+        "--include_imports",
+        *protos,
+    ]
+    print("+", " ".join(cmd))
+    subprocess.run(cmd, cwd=ROOT, check=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+{%- endif %}

@@ -1,0 +1,4 @@
+    from {{ python_package }}.llm.openai.routes import router as _llm_openai_router
+
+    api_router.include_router(_llm_openai_router)
+

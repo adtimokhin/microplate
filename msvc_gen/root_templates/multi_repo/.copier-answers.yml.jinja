@@ -1,0 +1,15 @@
+# msvc-gen multi-service MANIFEST (topology: {{ topology }}).
+# Regenerated wholesale on every `msvc-gen update`; NEVER EDIT MANUALLY.
+#
+# multi_repo: each service under this directory is its OWN independent repo with
+# its OWN .copier-answers.yml. This manifest only records the roster + shared
+# answers so `msvc-gen update --output .` can re-drive every service.
+topology: {{ topology }}
+service_name: {{ repo_name }}
+service_names: {{ service_names | tojson }}
+transport_grpc: {{ transport_grpc | tojson }}
+transport_rabbitmq: {{ transport_rabbitmq | tojson }}
+tests_contract: {{ tests_contract | tojson }}
+ci: {{ ci | tojson }}
+license: {{ license | tojson }}
+services_config: {{ services_config | tojson }}

@@ -1,0 +1,4 @@
+      - name: Regenerate gRPC stubs and check for drift (D-009)
+        run: |
+          uv run python proto/regen_proto.py
+          git diff --exit-code

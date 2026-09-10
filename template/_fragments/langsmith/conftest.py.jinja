@@ -1,0 +1,43 @@
+
+
+@pytest.fixture(autouse=True)
+def langsmith_tracer(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Neutralise the tracer: tracing OFF, placeholder key, no exporter, no network.
+
+    The registry default is ``APP_LANGSMITH_TRACING=true``; this forces it off so
+    ``@traceable`` stays a pass-through in the suite. It also seeds the class-2
+    secret ``APP_LANGSMITH_API_KEY`` (D-030) so settings construct at collection
+    time (D-037), and it strips every ``LANGSMITH_*`` / ``LANGCHAIN_*`` name at
+    teardown so a test that flips tracing on cannot leak into the next test.
+    """
+    import os
+
+    monkeypatch.setenv("APP_LANGSMITH_API_KEY", "test-placeholder")
+    monkeypatch.setenv("APP_LANGSMITH_TRACING", "off")
+    for _key in (
+        "LANGSMITH_TRACING",
+        "LANGSMITH_API_KEY",
+        "LANGSMITH_PROJECT",
+        "LANGCHAIN_TRACING_V2",
+    ):
+        monkeypatch.delenv(_key, raising=False)
+
+    from {{ python_package }}.config import get_settings
+
+    get_settings.cache_clear()
+    preserved = {
+        k: v
+        for k, v in os.environ.items()
+        if k.startswith("LANGSMITH_") or k.startswith("LANGCHAIN_")
+    }
+    try:
+        yield
+    finally:
+        for k in [
+            k
+            for k in os.environ
+            if k.startswith("LANGSMITH_") or k.startswith("LANGCHAIN_")
+        ]:
+            if k not in preserved:
+                del os.environ[k]
+        get_settings.cache_clear()

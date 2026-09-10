@@ -1,0 +1,35 @@
+"""Proves the db_redis overlay is wired into the running app (overlay-contract 7).
+
+Mock mode (default): ``init_client`` is replaced with a spec'd AsyncMock, so no
+socket is opened and the ``PING`` path is exercised offline. Integration mode
+(``tests_integration``): a real Redis container backs it.
+"""
+
+from __future__ import annotations
+
+import redis.asyncio as redis
+
+from {{ python_package }}.db.redis.client import get_client
+from {{ python_package }}.health import check_db_redis
+from {{ python_package }}.lifespan import lifespan
+from {{ python_package }}.main import app
+
+
+async def test_db_redis_boots(redis_client: object) -> None:
+    async with lifespan(app):
+        client = getattr(app.state, "db_redis", None)
+        assert client is not None, "db_redis client missing from app.state"
+        assert isinstance(client, redis.Redis)
+        assert client is get_client()
+
+        result = await check_db_redis()
+        assert result.healthy, result
+{%- if redis_pubsub %}
+
+
+def test_redis_pubsub_helper_importable() -> None:
+    from {{ python_package }}.db.redis import pubsub
+
+    assert callable(pubsub.publish)
+    assert callable(pubsub.subscribe)
+{%- endif %}

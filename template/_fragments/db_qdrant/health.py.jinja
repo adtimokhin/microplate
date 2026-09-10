@@ -1,0 +1,14 @@
+
+
+async def check_db_qdrant() -> HealthResult:
+    """Readiness probe: ``get_collections`` (also validates the API key)."""
+    from {{ python_package }}.db.qdrant.client import get_client
+
+    try:
+        await get_client().get_collections()
+    except Exception as exc:  # readiness must never raise
+        return HealthResult(name="db_qdrant", healthy=False, detail=repr(exc))
+    return HealthResult(name="db_qdrant", healthy=True)
+
+
+READINESS_CHECKS.append(check_db_qdrant)

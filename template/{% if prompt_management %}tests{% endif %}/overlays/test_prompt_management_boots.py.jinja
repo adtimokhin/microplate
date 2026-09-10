@@ -1,0 +1,47 @@
+"""Proves the prompt_management overlay is wired into the running app (overlay-contract 7).
+
+Runs offline: the prompt files are committed into the generated project, so the
+registry loads from disk with no network. The lifespan startup hook builds the
+registry and mirrors it onto ``app.state.prompt_registry``.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from {{ python_package }}.prompts import PromptRegistry
+
+
+async def test_prompt_management_boots(prompt_registry: object) -> None:
+    from {{ python_package }}.lifespan import lifespan
+    from {{ python_package }}.main import app
+    from {{ python_package }}.prompts.registry import get_registry
+
+    async with lifespan(app):
+        registry = getattr(app.state, "prompt_registry", None)
+        assert registry is not None, "prompt_registry missing from app.state"
+        assert isinstance(registry, PromptRegistry)
+        assert registry is get_registry()
+        assert len(registry) >= 1
+
+        prompt = registry.get("summarize")
+        assert "{text}" in prompt.template
+        rendered = prompt.render(text="the quick brown fox")
+        assert "the quick brown fox" in rendered
+
+
+def test_prompt_management_get_unknown_raises(prompt_registry: object) -> None:
+    from {{ python_package }}.prompts import PromptError, load_registry
+
+    registry = load_registry()
+    with pytest.raises(PromptError):
+        registry.get("does-not-exist")
+
+
+def test_prompt_management_schema_rejects_unknown_key(prompt_registry: object) -> None:
+    from pydantic import ValidationError
+
+    from {{ python_package }}.prompts import Prompt
+
+    with pytest.raises(ValidationError):
+        Prompt.model_validate({"name": "x", "version": 1, "template": "hi", "unexpected": True})

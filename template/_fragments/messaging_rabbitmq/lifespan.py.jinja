@@ -1,0 +1,32 @@
+
+
+async def _messaging_rabbitmq_startup(app: FastAPI) -> None:
+    import structlog
+
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.health import register_messaging_rabbitmq
+    from {{ python_package }}.messaging import RabbitMQ
+
+    settings = get_settings()
+    client = RabbitMQ(settings.rabbitmq_url, prefetch_count=settings.rabbitmq_prefetch)
+    try:
+        await client.connect()
+        await client.declare()
+    except Exception as exc:  # noqa: BLE001 - broker may not be up yet; robust conn retries
+        structlog.get_logger(__name__).warning("rabbitmq not reachable at startup", error=repr(exc))
+    app.state.rabbitmq = client
+    register_messaging_rabbitmq(client)
+
+
+async def _messaging_rabbitmq_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.health import register_messaging_rabbitmq
+
+    client = getattr(app.state, "rabbitmq", None)
+    if client is not None:
+        await client.close()
+    app.state.rabbitmq = None
+    register_messaging_rabbitmq(None)
+
+
+STARTUP_HOOKS.append(_messaging_rabbitmq_startup)
+SHUTDOWN_HOOKS.append(_messaging_rabbitmq_shutdown)

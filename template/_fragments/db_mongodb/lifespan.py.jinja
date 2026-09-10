@@ -1,0 +1,16 @@
+
+
+async def _db_mongodb_startup(app: FastAPI) -> None:
+    from {{ python_package }}.db.mongodb.client import init_client
+
+    app.state.db_mongodb = init_client()
+
+
+async def _db_mongodb_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.db.mongodb.client import close_client
+
+    await close_client()
+
+
+STARTUP_HOOKS.append(_db_mongodb_startup)
+SHUTDOWN_HOOKS.append(_db_mongodb_shutdown)

@@ -1,0 +1,41 @@
+"""tool_scaffold proves-it-boots test (overlay-contract 7).
+
+Runs offline: the example tools run in-process. The overlay's router is wired
+into ``api_router`` at import time via the ``api_router.py`` fragment, so the
+tool routes are live as soon as the app is built.
+"""
+
+from __future__ import annotations
+
+from {{ python_package }}.health import check_tool_scaffold
+from {{ python_package }}.tools import ToolRegistry, registry
+
+
+async def test_tool_scaffold_boots(tool_client) -> None:
+    assert isinstance(registry, ToolRegistry)
+    assert len(registry) >= 1
+
+    result = await check_tool_scaffold()
+    assert result.healthy, result
+
+    echoed = tool_client.post("/tools/echo", json={"text": "ping"})
+    assert echoed.status_code == 200
+    assert echoed.json() == {"text": "ping"}
+
+    added = tool_client.post("/tools/add", json={"a": 2, "b": 3})
+    assert added.json() == {"sum": 5.0}
+
+    catalogue = tool_client.get("/tools").json()
+    by_name = {spec["name"]: spec for spec in catalogue}
+    assert {"echo", "add"} <= set(by_name)
+    assert by_name["echo"]["description"]
+    assert by_name["echo"]["parameters"]["type"] == "object"
+    assert "text" in by_name["echo"]["parameters"]["properties"]
+
+    schema = tool_client.get("/openapi.json").json()
+    tool_ops = {
+        methods["post"]["operationId"]
+        for path, methods in schema["paths"].items()
+        if path.startswith("/tools/") and "post" in methods
+    }
+    assert {"echo", "add"} <= tool_ops

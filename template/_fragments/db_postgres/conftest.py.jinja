@@ -1,0 +1,55 @@
+
+
+{% if tests_integration %}@pytest.fixture
+def postgres_container() -> Iterator[str]:
+    """Real PostgreSQL 17.6 via testcontainers. Yields an asyncpg DSN."""
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer("postgres:17.6", driver="asyncpg") as container:
+        yield container.get_connection_url()
+
+
+@pytest.fixture
+def postgres_session(postgres_container: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Point settings at the live container and reset the settings cache."""
+    from {{ python_package }}.config import get_settings
+
+    monkeypatch.setenv("APP_DB_POSTGRES_DSN", postgres_container)
+    get_settings.cache_clear()
+    try:
+        yield postgres_container
+    finally:
+        get_settings.cache_clear()
+{% else %}@pytest.fixture(autouse=True)
+def postgres_session(monkeypatch: pytest.MonkeyPatch) -> object:
+    """Mock-mode engine: a spec'd AsyncMock whose ``SELECT 1`` path succeeds.
+
+    Autouse so every test (including the base health probe) sees a stubbed,
+    healthy datastore with no container. ``init_engine`` is patched so the app
+    lifespan installs this fake instead of opening a real pool;
+    ``isinstance(fake, AsyncEngine)`` still holds.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from {{ python_package }}.db.postgres import engine as engine_mod
+
+    conn = AsyncMock()
+    conn.execute = AsyncMock(return_value=None)
+    conn_cm = AsyncMock()
+    conn_cm.__aenter__ = AsyncMock(return_value=conn)
+    conn_cm.__aexit__ = AsyncMock(return_value=None)
+
+    fake_engine = AsyncMock(spec=AsyncEngine)
+    fake_engine.connect = MagicMock(return_value=conn_cm)
+    fake_engine.dispose = AsyncMock(return_value=None)
+
+    def _fake_init() -> AsyncEngine:
+        engine_mod._engine = fake_engine
+        engine_mod._session_factory = MagicMock()
+        return fake_engine
+
+    monkeypatch.setattr(engine_mod, "init_engine", _fake_init)
+    return fake_engine
+{% endif %}

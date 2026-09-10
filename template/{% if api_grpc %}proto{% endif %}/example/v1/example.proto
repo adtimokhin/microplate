@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package example.v1;
+
+// Example gRPC service: one unary method and one server-streaming method.
+// Regenerate the committed Python stubs with `python proto/regen_proto.py`
+// (pinned grpcio-tools + protobuf, see the script). CI runs it then
+// `git diff --exit-code` so the committed stubs can never drift (D-009).
+service ExampleService {
+  // Unary: echo a greeting back to the caller.
+  rpc Greet(GreetRequest) returns (GreetReply);
+
+  // Server streaming: emit `count` sequential ticks.
+  rpc Ticks(TicksRequest) returns (stream Tick);
+}
+
+message GreetRequest {
+  string name = 1;
+}
+
+message GreetReply {
+  string message = 1;
+}
+
+message TicksRequest {
+  uint32 count = 1;
+}
+
+message Tick {
+  uint32 index = 1;
+}

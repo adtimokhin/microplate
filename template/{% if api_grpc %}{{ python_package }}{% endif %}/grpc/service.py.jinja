@@ -1,0 +1,30 @@
+"""Implementation of ``example.v1.ExampleService``.
+
+Duck-typed against the generated ``add_ExampleServiceServicer_to_server`` helper
+in ``_pb/example/v1/example_pb2_grpc.py`` (it looks up ``Greet`` and ``Ticks``
+by name, so no subclass of the generated servicer base is needed). One unary
+method and one server-streaming method, both ``async``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from typing import Any
+
+from {{ python_package }}.grpc._pb.example.v1 import example_pb2
+
+
+class ExampleServicer:
+    """The two example RPCs. Replace the bodies with real logic."""
+
+    async def Greet(self, request: Any, context: Any) -> Any:
+        """Unary: echo a greeting back to the caller."""
+
+        name = request.name or "world"
+        return example_pb2.GreetReply(message=f"Hello, {name}!")
+
+    async def Ticks(self, request: Any, context: Any) -> AsyncIterator[Any]:
+        """Server streaming: emit ``count`` sequential ticks (min 1)."""
+
+        for index in range(request.count or 1):
+            yield example_pb2.Tick(index=index)

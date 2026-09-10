@@ -1,0 +1,109 @@
+
+
+{% if tests_integration %}@pytest.fixture(scope="session")
+def rabbitmq_container() -> Iterator[str]:
+    """Real RabbitMQ 4.1 via testcontainers. Yields an AMQP URL."""
+    from testcontainers.community.rabbitmq import RabbitMqContainer
+
+    with RabbitMqContainer("rabbitmq:4.1-management") as container:
+        params = container.get_connection_params()
+        yield (
+            f"amqp://{params.credentials.username}:{params.credentials.password}"
+            f"@{params.host}:{params.port}{params.virtual_host}"
+        )
+
+
+@pytest.fixture
+def rabbitmq_channel(rabbitmq_container: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Point settings at the live container and reset the settings cache.
+
+    The real ``aio_pika.connect_robust`` path runs against the container; no
+    connection factory override.
+    """
+    from {{ python_package }}.config import get_settings
+
+    monkeypatch.setenv("APP_RABBITMQ_URL", rabbitmq_container)
+    get_settings.cache_clear()
+    try:
+        yield rabbitmq_container
+    finally:
+        get_settings.cache_clear()
+{% else %}class _RabbitmqFakeExchange:
+    def __init__(self, name):
+        self.name = name
+        self.published = []
+
+    async def publish(self, message, routing_key, *, mandatory=False, timeout=None):
+        self.published.append((routing_key, message.body))
+        return object()
+
+
+class _RabbitmqFakeQueue:
+    def __init__(self, name):
+        self.name = name
+        self.callback = None
+
+    async def bind(self, exchange, routing_key=None):
+        return None
+
+    async def consume(self, callback, *args, **kwargs):
+        self.callback = callback
+        return "ctag-" + self.name
+
+
+class _RabbitmqFakeChannel:
+    def __init__(self):
+        self.exchanges = {}
+        self.queues = {}
+        self.prefetch_count = None
+        self.closed = False
+
+    async def set_qos(self, prefetch_count, *args, **kwargs):
+        self.prefetch_count = prefetch_count
+
+    async def declare_exchange(self, name, *args, **kwargs):
+        return self.exchanges.setdefault(name, _RabbitmqFakeExchange(name))
+
+    async def declare_queue(self, name, *args, **kwargs):
+        return self.queues.setdefault(name, _RabbitmqFakeQueue(name))
+
+    async def get_queue(self, name, *args, **kwargs):
+        return self.queues.setdefault(name, _RabbitmqFakeQueue(name))
+
+    async def close(self):
+        self.closed = True
+
+
+class _RabbitmqFakeRobustConnection:
+    def __init__(self):
+        self.channel_obj = _RabbitmqFakeChannel()
+        self.is_closed = False
+
+    async def channel(self, *args, **kwargs):
+        return self.channel_obj
+
+    async def close(self):
+        self.is_closed = True
+
+
+@pytest.fixture(autouse=True)
+def rabbitmq_channel():
+    """Install a fake robust connection so no test opens a socket.
+
+    Autouse: every test (the base smoke tests included) enters the app lifespan
+    offline, so the RabbitMQ readiness check reports healthy without a broker.
+    Yields the single fake channel every ``connection.channel()`` call returns.
+    """
+    from {{ python_package }}.messaging import set_connection_factory
+
+    connection = _RabbitmqFakeRobustConnection()
+
+    async def _factory(*_args, **_kwargs):
+        return connection
+
+    set_connection_factory(_factory)
+    try:
+        yield connection.channel_obj
+    finally:
+        set_connection_factory(None)
+{% endif %}

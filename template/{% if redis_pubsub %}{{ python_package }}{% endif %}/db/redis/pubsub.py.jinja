@@ -1,0 +1,29 @@
+"""Redis pub/sub helper (sub-option ``redis_pubsub``).
+
+``publish`` reuses the shared client. ``subscribe`` holds a dedicated connection
+for the lifetime of the async generator, per redis-py guidance: never multiplex
+pub/sub and normal commands on one connection. Run a long-lived ``subscribe``
+loop as its own task and cancel it on shutdown.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+from {{ python_package }}.db.redis.client import get_client
+
+
+async def publish(channel: str, message: str) -> int:
+    """Publish ``message`` to ``channel``. Returns the receiver count."""
+
+    return int(await get_client().publish(channel, message))
+
+
+async def subscribe(channel: str) -> AsyncIterator[str]:
+    """Yield message payloads from ``channel`` until the generator is closed."""
+
+    async with get_client().pubsub() as pubsub:
+        await pubsub.subscribe(channel)
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                yield message["data"]

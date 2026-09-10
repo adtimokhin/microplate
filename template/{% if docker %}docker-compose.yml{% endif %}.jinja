@@ -1,0 +1,32 @@
+{%- from 'includes/fragment_loops.jinja' import include_slot with context -%}
+{%- set app_deps = include_slot('compose.app-deps.yml') -%}
+# Compose Specification. No top-level `version:` key (obsolete, D-010).
+name: {{ service_slug }}
+
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENVIRONMENT: local
+    env_file:
+      - path: .env
+        required: false
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/live').status==200 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+{%- if app_deps | trim %}
+    depends_on:
+{{ app_deps | trim('\n') }}
+{%- endif %}
+{{ include_slot('compose.yml') }}

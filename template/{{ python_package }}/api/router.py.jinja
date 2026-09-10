@@ -1,0 +1,24 @@
+{%- from 'includes/fragment_loops.jinja' import include_slot with context -%}
+"""Top-level API router.
+
+Aggregates the base routes plus any overlay-contributed routers, all wired at
+import time. Overlays add routers through ``_fragments/<overlay-id>/api_router.py.jinja``
+(assembled in ``overlay_order``), each fragment a 4-space-indented block that
+imports its router and calls ``api_router.include_router(...)``. Overlays never
+mount routers from a lifespan hook and never touch ``app.openapi_schema``.
+"""
+
+from fastapi import APIRouter
+
+from .routes import root
+
+api_router = APIRouter()
+api_router.include_router(root.router)
+
+
+def _include_overlay_routers() -> None:
+    """Attach overlay-contributed routers. Body assembled at render time."""
+{{ (include_slot('api_router.py') or '    pass') | trim('\n') }}
+
+
+_include_overlay_routers()

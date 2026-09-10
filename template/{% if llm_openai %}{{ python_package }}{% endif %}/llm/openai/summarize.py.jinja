@@ -1,0 +1,43 @@
+"""Deterministic sample call: one-sentence summary via Chat Completions.
+
+``temperature=0`` and a fixed instruction. Replace with a real handler; the
+shape (typed request in, typed value out, ``tenacity`` retry) is the point.
+"""
+
+from __future__ import annotations
+
+from openai import APIConnectionError, APIStatusError, RateLimitError
+from openai.types.chat import ChatCompletionMessageParam
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+from {{ python_package }}.config import get_settings
+from {{ python_package }}.llm.openai.client import get_client
+
+_SYSTEM_PROMPT = "Summarize the user's text in one faithful sentence. No preamble."
+
+
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=0.5, max=8),
+    retry=retry_if_exception_type((APIConnectionError, RateLimitError, APIStatusError)),
+)
+async def summarize(text: str) -> str:
+    """Return a one-sentence summary of ``text``."""
+
+    settings = get_settings()
+    messages: list[ChatCompletionMessageParam] = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": text},
+    ]
+    response = await get_client().chat.completions.create(
+        model=settings.llm_openai_model,
+        temperature=0,
+        messages=messages,
+    )
+    return response.choices[0].message.content or ""

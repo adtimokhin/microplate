@@ -1,0 +1,24 @@
+"""Prompt management overlay: versioned TOML prompt files + a load-time registry.
+
+The base pydantic-settings loader stays base-owned (D-021); this overlay adds
+only ``prompts_dir`` and the registry that reads it. The registry is built once
+at app startup and mirrored onto ``app.state.prompt_registry``.
+"""
+
+from {{ python_package }}.prompts.registry import (
+    Prompt,
+    PromptError,
+    PromptRegistry,
+    get_registry,
+    load_registry,
+    set_registry,
+)
+
+__all__ = [
+    "Prompt",
+    "PromptError",
+    "PromptRegistry",
+    "get_registry",
+    "load_registry",
+    "set_registry",
+]

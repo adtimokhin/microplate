@@ -1,0 +1,18 @@
+"""A sample ``@traceable`` unit of work (overlay: langsmith).
+
+Replace with real logic. The point is the shape: decorate the functions you want
+as spans with ``@traceable``; nested calls form a parent/child trace tree
+automatically. With ``LANGSMITH_TRACING`` unset the decorator is a transparent
+pass-through, so this function behaves identically with tracing on or off.
+"""
+
+from __future__ import annotations
+
+from langsmith import traceable
+
+
+@traceable(run_type="chain", name="sample_pipeline")
+async def sample_pipeline(value: str) -> str:
+    """Normalise ``value``. Stands in for a real traced pipeline step."""
+
+    return value.strip().lower()

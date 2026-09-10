@@ -1,0 +1,48 @@
+"""Process-wide async OpenAI client, bound to the FastAPI lifespan.
+
+One :class:`~openai.AsyncOpenAI` per process. The SDK's own retries are turned
+off (``max_retries=0``); ``tenacity`` owns retry/backoff around the sample call
+so the policy is explicit and identical across providers. Construction performs
+no I/O.
+"""
+
+from __future__ import annotations
+
+from openai import AsyncOpenAI
+
+from {{ python_package }}.config import get_settings
+
+_client: AsyncOpenAI | None = None
+
+
+def init_client() -> AsyncOpenAI:
+    """Build the client from settings. Idempotent within a process."""
+
+    global _client
+
+    settings = get_settings()
+    _client = AsyncOpenAI(
+        api_key=settings.llm_openai_api_key,
+        base_url=settings.llm_openai_base_url or None,
+        timeout=float(settings.llm_openai_timeout_s),
+        max_retries=0,
+    )
+    return _client
+
+
+def get_client() -> AsyncOpenAI:
+    """Return the process-wide client, or raise if the lifespan has not run."""
+
+    if _client is None:
+        raise RuntimeError("OpenAI client is not initialised; is the application lifespan running?")
+    return _client
+
+
+async def close_client() -> None:
+    """Close the client and clear the holder."""
+
+    global _client
+
+    if _client is not None:
+        await _client.close()
+    _client = None

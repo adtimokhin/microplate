@@ -1,0 +1,15 @@
+# msvc-gen multi-service MANIFEST (topology: {{ topology }}).
+# Regenerated wholesale on every `msvc-gen update`; NEVER EDIT MANUALLY.
+#
+# This is the root record D-017 requires: the roster plus the shared answers,
+# enough for `msvc-gen update --output .` to re-drive each service render.
+# Per-service overlay selections are also kept in each services/<name>/.copier-answers.yml.
+topology: {{ topology }}
+service_name: {{ repo_name }}
+service_names: {{ service_names | tojson }}
+transport_grpc: {{ transport_grpc | tojson }}
+transport_rabbitmq: {{ transport_rabbitmq | tojson }}
+tests_contract: {{ tests_contract | tojson }}
+ci: {{ ci | tojson }}
+license: {{ license | tojson }}
+services_config: {{ services_config | tojson }}

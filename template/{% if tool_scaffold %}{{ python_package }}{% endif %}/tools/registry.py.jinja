@@ -1,0 +1,65 @@
+"""In-process registry of callable tools.
+
+Each :class:`ToolSpec` couples a name, a human description, a pydantic request
+and response model, and an async handler. :meth:`ToolSpec.function_schema`
+renders the OpenAI-style ``{name, description, parameters}`` shape that
+function-calling clients expect; the HTTP routes in ``routes.py`` expose both the
+per-tool ``POST`` endpoints and a ``GET /tools`` listing built from it.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable, Iterator
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel
+
+ToolHandler = Callable[[Any], Awaitable[BaseModel]]
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """One callable tool."""
+
+    name: str
+    description: str
+    request_model: type[BaseModel]
+    response_model: type[BaseModel]
+    handler: ToolHandler
+
+    def function_schema(self) -> dict[str, Any]:
+        """OpenAI-style function spec: name, description, JSON-Schema parameters."""
+
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.request_model.model_json_schema(),
+        }
+
+
+class ToolRegistry:
+    """Name -> :class:`ToolSpec`. One process-wide instance lives in this module."""
+
+    def __init__(self) -> None:
+        self._tools: dict[str, ToolSpec] = {}
+
+    def register(self, spec: ToolSpec) -> None:
+        if spec.name in self._tools:
+            raise ValueError(f"tool {spec.name!r} is already registered")
+        self._tools[spec.name] = spec
+
+    def get(self, name: str) -> ToolSpec | None:
+        return self._tools.get(name)
+
+    def specs(self) -> list[dict[str, Any]]:
+        return [spec.function_schema() for spec in self]
+
+    def __iter__(self) -> Iterator[ToolSpec]:
+        return iter(self._tools.values())
+
+    def __len__(self) -> int:
+        return len(self._tools)
+
+
+registry = ToolRegistry()

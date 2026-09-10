@@ -1,0 +1,13 @@
+"""Declarative base for ORM models.
+
+Import :class:`Base` in every model module so its metadata is populated. Alembic
+``env.py`` reflects ``Base.metadata`` for ``--autogenerate``.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    """Shared declarative base for all ORM models in this service."""

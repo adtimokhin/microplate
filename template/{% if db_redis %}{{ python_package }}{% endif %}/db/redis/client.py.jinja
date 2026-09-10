@@ -1,0 +1,69 @@
+"""Async client and connection-pool holder (research/data-layer.md).
+
+One shared :class:`redis.asyncio.Redis` and its :class:`ConnectionPool` live for
+the whole process. There is no async destructor, so both are closed explicitly
+from the lifespan shutdown hook. ``decode_responses=True`` yields ``str`` values;
+an overlay that needs raw bytes should build its own client.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+
+import redis.asyncio as redis
+
+from {{ python_package }}.config import get_settings
+
+_pool: redis.ConnectionPool | None = None
+_client: redis.Redis | None = None
+
+
+def init_client() -> redis.Redis:
+    """Build the pool and client. Idempotent within a process."""
+
+    global _pool, _client
+
+    settings = get_settings()
+    _pool = redis.ConnectionPool.from_url(
+        settings.redis_url,
+        max_connections=settings.redis_max_connections,
+        health_check_interval=settings.redis_health_check_interval,
+        decode_responses=True,
+    )
+    _client = redis.Redis(connection_pool=_pool)
+    return _client
+
+
+def get_client() -> redis.Redis:
+    """Return the process-wide client, or raise if the lifespan has not run."""
+
+    if _client is None:
+        raise RuntimeError("Redis client is not initialised; is the application lifespan running?")
+    return _client
+
+
+async def close_client() -> None:
+    """Close the client and the pool (both are required)."""
+
+    global _pool, _client
+
+    if _client is not None:
+        await _client.aclose()
+    if _pool is not None:
+        await _pool.aclose()
+    _client = None
+    _pool = None
+
+
+async def cache_get_or_set(key: str, ttl: int, producer: Callable[[], Awaitable[str]]) -> str:
+    """Return the cached value for ``key`` or compute, store (TTL seconds), return it."""
+
+    client = get_client()
+    cached = await client.get(key)
+    if isinstance(cached, str):
+        return cached
+    if isinstance(cached, bytes):
+        return cached.decode()
+    value = await producer()
+    await client.set(key, value, ex=ttl)
+    return value

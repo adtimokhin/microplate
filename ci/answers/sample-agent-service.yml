@@ -1,0 +1,15 @@
+# Representative overlay slice for the Phase 2 sample walkthrough and the
+# `copier update` DoD: a backend a small agentic system could call - relational
+# store, cache, a task queue, a gRPC surface, and tracing.
+service_name: agent-tasks
+license: proprietary
+db_postgres: true
+db_redis: true
+messaging_rabbitmq: true
+api_grpc: true
+otel_tracing: true
+tests_unit: true
+tests_integration: false
+logging_structured: true
+docker: true
+ci: github_actions

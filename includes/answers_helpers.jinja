@@ -1,0 +1,78 @@
+{#
+  answers_helpers.jinja
+  ---------------------
+  Canonical overlay iteration order and the helpers every shared file uses to
+  assemble overlay fragments. Import WITH CONTEXT so the current answers are in
+  scope:
+
+      {% from 'includes/answers_helpers.jinja' import selected_overlay_ids with context %}
+
+  Exposed names:
+    - overlay_order        : the frozen, append-only list of every overlay id.
+                             Mirrors registry.yaml `overlay_order`. Append only,
+                             never reorder (overlay-contract 4.2 / 8.2).
+    - selected_overlay_ids : the subset of overlay_order whose gate answer is
+                             true, in overlay_order sequence. The ONLY legal
+                             iteration order for shared-file assembly.
+    - selected_overlays()  : macro, emits selected_overlay_ids as a JSON array
+                             string (used by the `_selected_overlays` audit key).
+    - overlay_enabled(id)  : macro, emits a truthy string when `id` is selected,
+                             empty otherwise. Prefer `id in selected_overlay_ids`.
+
+  Every gate here is a single boolean answer whose name equals the overlay id
+  (the one-key-one-overlay invariant, D-020). Adding an overlay means appending
+  its id to `overlay_order` AND adding one line to `_gates` below.
+#}
+{%- set overlay_order = [
+  'db_postgres',
+  'db_mongodb',
+  'db_redis',
+  'db_qdrant',
+  'messaging_rabbitmq',
+  'api_grpc',
+  'tool_scaffold',
+  'mcp_server',
+  'transport_grpc',
+  'transport_rabbitmq',
+  'streaming_sse',
+  'streaming_grpc',
+  'llm_openai',
+  'llm_anthropic',
+  'prompt_management',
+  'langchain',
+  'embedding_pipeline',
+  'langgraph',
+  'langsmith',
+  'otel_tracing',
+] -%}
+{%- set _gates = {
+  'db_postgres': db_postgres | default(false),
+  'db_mongodb': db_mongodb | default(false),
+  'db_redis': db_redis | default(false),
+  'db_qdrant': db_qdrant | default(false),
+  'messaging_rabbitmq': messaging_rabbitmq | default(false),
+  'api_grpc': api_grpc | default(false),
+  'tool_scaffold': tool_scaffold | default(false),
+  'mcp_server': mcp_server | default(false),
+  'transport_grpc': transport_grpc | default(false),
+  'transport_rabbitmq': transport_rabbitmq | default(false),
+  'streaming_sse': streaming_sse | default(false),
+  'streaming_grpc': streaming_grpc | default(false),
+  'llm_openai': llm_openai | default(false),
+  'llm_anthropic': llm_anthropic | default(false),
+  'prompt_management': prompt_management | default(false),
+  'langchain': langchain | default(false),
+  'embedding_pipeline': embedding_pipeline | default(false),
+  'langgraph': langgraph | default(false),
+  'langsmith': langsmith | default(false),
+  'otel_tracing': otel_tracing | default(false),
+} -%}
+{%- set _ns = namespace(ids=[]) -%}
+{%- for _oid in overlay_order -%}
+{%- if _gates[_oid] -%}
+{%- set _ns.ids = _ns.ids + [_oid] -%}
+{%- endif -%}
+{%- endfor -%}
+{%- set selected_overlay_ids = _ns.ids -%}
+{%- macro selected_overlays() -%}{{ selected_overlay_ids | tojson }}{%- endmacro -%}
+{%- macro overlay_enabled(oid) -%}{{ 'true' if oid in selected_overlay_ids else '' }}{%- endmacro -%}

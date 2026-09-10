@@ -1,0 +1,122 @@
+"""Versioned prompt files plus a load-time registry scoped to prompts (D-021).
+
+The base pydantic-settings loader stays base-owned; this overlay adds only the
+prompt layer. Prompt files are TOML (``tomllib``, standard library, no new
+dependency) living under ``APP_PROMPTS_DIR`` (default ``prompts/`` at the project
+root). Each file is one prompt version with keys ``name`` (str), ``version``
+(int, default 1), ``description`` (str), ``tags`` (list of str), and ``template``
+(str, a multi-line TOML string with ``str.format`` placeholders).
+
+:class:`Prompt` is the schema (``extra="forbid"`` so an unknown key fails
+validation). :func:`load_registry` reads and validates every ``*.toml`` in the
+directory and indexes it by ``(name, version)``; :meth:`PromptRegistry.get`
+returns the highest version when none is given.
+"""
+
+from __future__ import annotations
+
+import tomllib
+from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from {{ python_package }}.config import get_settings
+
+
+class PromptError(RuntimeError):
+    """A prompt file is missing or malformed, or the requested prompt is unknown."""
+
+
+class Prompt(BaseModel):
+    """One versioned prompt. This model is the prompt-file schema."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    version: int = Field(default=1, ge=1)
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    template: str = Field(min_length=1)
+
+    def render(self, /, **values: object) -> str:
+        """Fill the ``str.format`` placeholders in ``template``."""
+
+        return self.template.format(**values)
+
+
+class PromptRegistry:
+    """``name -> {version -> Prompt}``. Built by :func:`load_registry`."""
+
+    def __init__(self) -> None:
+        self._by_name: dict[str, dict[int, Prompt]] = {}
+
+    def add(self, prompt: Prompt) -> None:
+        versions = self._by_name.setdefault(prompt.name, {})
+        if prompt.version in versions:
+            raise PromptError(f"duplicate prompt {prompt.name!r} version {prompt.version}")
+        versions[prompt.version] = prompt
+
+    def get(self, name: str, version: int | None = None) -> Prompt:
+        try:
+            versions = self._by_name[name]
+        except KeyError:
+            raise PromptError(f"unknown prompt {name!r}") from None
+        if version is None:
+            return versions[max(versions)]
+        try:
+            return versions[version]
+        except KeyError:
+            raise PromptError(f"prompt {name!r} has no version {version}") from None
+
+    def names(self) -> list[str]:
+        return sorted(self._by_name)
+
+    def versions(self, name: str) -> list[int]:
+        return sorted(self._by_name.get(name, {}))
+
+    def __len__(self) -> int:
+        return sum(len(v) for v in self._by_name.values())
+
+
+_registry: PromptRegistry | None = None
+
+
+def set_registry(registry: PromptRegistry) -> None:
+    """Install the process-wide registry (called by the lifespan startup hook)."""
+
+    global _registry
+    _registry = registry
+
+
+def get_registry() -> PromptRegistry:
+    """Return the process-wide registry, or raise if the lifespan has not run."""
+
+    if _registry is None:
+        raise PromptError("prompt registry is not loaded; is the application lifespan running?")
+    return _registry
+
+
+def _load_file(path: Path) -> Prompt:
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise PromptError(f"{path.name}: {exc}") from exc
+    return Prompt.model_validate(data)
+
+
+def load_registry(directory: str | Path | None = None) -> PromptRegistry:
+    """Read and validate every ``*.toml`` prompt file under ``directory``.
+
+    ``directory`` defaults to ``APP_PROMPTS_DIR`` from settings. Raises
+    :class:`PromptError` if the directory is absent or any file is invalid.
+    """
+
+    root = Path(directory) if directory is not None else Path(get_settings().prompts_dir)
+    if not root.is_dir():
+        raise PromptError(f"prompts directory {root} does not exist")
+    registry = PromptRegistry()
+    for path in sorted(root.glob("*.toml")):
+        registry.add(_load_file(path))
+    if len(registry) == 0:
+        raise PromptError(f"no prompt files (*.toml) found in {root}")
+    return registry

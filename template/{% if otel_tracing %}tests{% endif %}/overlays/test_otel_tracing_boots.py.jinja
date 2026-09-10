@@ -1,0 +1,27 @@
+"""otel_tracing proves-it-boots test (overlay-contract 7).
+
+Runs offline: an in-memory span exporter stands in for a collector. Exercises the
+real wiring path (lifespan startup -> setup_tracing -> FastAPI instrumentation).
+"""
+
+from __future__ import annotations
+
+from starlette.testclient import TestClient
+
+from {{ python_package }}.lifespan import SHUTDOWN_HOOKS, STARTUP_HOOKS
+from {{ python_package }}.main import create_app
+
+
+def test_lifecycle_hooks_registered() -> None:
+    assert "_otel_tracing_startup" in {h.__name__ for h in STARTUP_HOOKS}
+    assert "_otel_tracing_shutdown" in {h.__name__ for h in SHUTDOWN_HOOKS}
+
+
+def test_tracing_exports_spans(otel_span_exporter) -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.get("/")
+        assert response.status_code == 200
+
+    spans = otel_span_exporter.get_finished_spans()
+    assert spans, "expected at least one exported span for GET /"

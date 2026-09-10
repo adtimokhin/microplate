@@ -1,0 +1,18 @@
+  redis:
+{%- if db_redis and langgraph | default(false) and (langgraph_checkpoint | default('postgres')) == 'redis' %}
+    # redis-stack: RedisJSON + RediSearch, required by langgraph-checkpoint-redis (D-015, IR-1).
+    image: redis/redis-stack:7.4.0-v8
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+{%- else %}
+    image: redis:8.0
+    ports:
+      - "6379:6379"
+{%- endif %}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s

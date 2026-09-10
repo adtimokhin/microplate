@@ -1,0 +1,21 @@
+"""RabbitMQ messaging overlay.
+
+Robust connection and channel (aio-pika), a publisher with broker confirms, a
+consumer with bounded prefetch and manual ack, and a dead-letter + delayed-retry
+topology. See ``overlays/messaging_rabbitmq/OVERLAY.md``.
+"""
+
+from __future__ import annotations
+
+from .client import RabbitMQ, set_connection_factory
+from .consumer import consume_with_retry, delivery_attempts
+from .topology import TopologyConfig, declare_topology
+
+__all__ = [
+    "RabbitMQ",
+    "TopologyConfig",
+    "consume_with_retry",
+    "declare_topology",
+    "delivery_attempts",
+    "set_connection_factory",
+]

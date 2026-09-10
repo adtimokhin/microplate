@@ -1,0 +1,67 @@
+"""Async engine and session-factory holders (research/data-layer.md).
+
+The engine and the ``async_sessionmaker`` are process-wide singletons. They are
+built once from :func:`~{{ python_package }}.config.get_settings` by the app
+lifespan startup hook and torn down by the shutdown hook. Nothing here connects
+to PostgreSQL at import time; ``create_async_engine`` is lazy.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from {{ python_package }}.config import get_settings
+
+_engine: AsyncEngine | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def init_engine() -> AsyncEngine:
+    """Build the engine and session factory. Idempotent within a process."""
+
+    global _engine, _session_factory
+
+    settings = get_settings()
+    _engine = create_async_engine(
+        settings.db_postgres_dsn,
+        pool_size=settings.db_postgres_pool_size,
+        pool_pre_ping=True,
+    )
+    _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
+    return _engine
+
+
+def get_engine() -> AsyncEngine:
+    """Return the process-wide engine, or raise if the lifespan has not run."""
+
+    if _engine is None:
+        raise RuntimeError(
+            "PostgreSQL engine is not initialised; is the application lifespan running?"
+        )
+    return _engine
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the process-wide session factory, or raise if not initialised."""
+
+    if _session_factory is None:
+        raise RuntimeError(
+            "PostgreSQL session factory is not initialised; is the application lifespan running?"
+        )
+    return _session_factory
+
+
+async def dispose_engine() -> None:
+    """Dispose the engine so asyncpg connections are closed on the loop."""
+
+    global _engine, _session_factory
+
+    if _engine is not None:
+        await _engine.dispose()
+    _engine = None
+    _session_factory = None

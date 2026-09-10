@@ -1,0 +1,60 @@
+"""Async client holder (research/data-layer.md).
+
+The client is a process-wide singleton bound to the FastAPI lifespan. Creating
+``AsyncMongoClient`` does not open a socket; the connection pool is established
+lazily on first use. A low ``serverSelectionTimeoutMS`` keeps health checks and
+cold starts from hanging when a replica set is down.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pymongo import AsyncMongoClient
+from pymongo.asynchronous.database import AsyncDatabase
+
+from {{ python_package }}.config import get_settings
+
+Document = dict[str, Any]
+
+_client: AsyncMongoClient[Document] | None = None
+
+
+def init_client() -> AsyncMongoClient[Document]:
+    """Build the client. Idempotent within a process."""
+
+    global _client
+
+    settings = get_settings()
+    _client = AsyncMongoClient(
+        settings.db_mongodb_uri,
+        tz_aware=True,
+        serverSelectionTimeoutMS=settings.db_mongodb_server_selection_timeout_ms,
+    )
+    return _client
+
+
+def get_client() -> AsyncMongoClient[Document]:
+    """Return the process-wide client, or raise if the lifespan has not run."""
+
+    if _client is None:
+        raise RuntimeError(
+            "MongoDB client is not initialised; is the application lifespan running?"
+        )
+    return _client
+
+
+def get_database() -> AsyncDatabase[Document]:
+    """Return the configured database handle."""
+
+    return get_client()[get_settings().db_mongodb_database]
+
+
+async def close_client() -> None:
+    """Close the client and its pool."""
+
+    global _client
+
+    if _client is not None:
+        await _client.close()
+    _client = None

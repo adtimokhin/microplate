@@ -1,0 +1,13 @@
+
+
+async def check_tool_scaffold() -> HealthResult:
+    """Readiness probe: the tool registry is populated (routes are wired at import)."""
+
+    from {{ python_package }}.tools import registry
+
+    name = "tool_scaffold"
+    count = len(registry)
+    return HealthResult(name=name, healthy=count > 0, detail=f"{count} tools registered")
+
+
+READINESS_CHECKS.append(check_tool_scaffold)

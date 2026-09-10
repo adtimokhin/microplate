@@ -1,0 +1,28 @@
+
+
+@pytest.fixture
+def otel_span_exporter():
+    """In-memory span exporter wired into the tracing setup for this test.
+
+    Resets the process-global tracer provider before and after so each test
+    starts from a clean slate.
+    """
+
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    from opentelemetry.util._once import Once
+
+    from {{ python_package }}.observability.otel import tracing as _tracing
+
+    trace._TRACER_PROVIDER_SET_ONCE = Once()
+    trace._TRACER_PROVIDER = None
+
+    exporter = InMemorySpanExporter()
+    _tracing.set_test_span_exporter(exporter)
+    try:
+        yield exporter
+    finally:
+        _tracing.set_test_span_exporter(None)
+        exporter.clear()
+        trace._TRACER_PROVIDER_SET_ONCE = Once()
+        trace._TRACER_PROVIDER = None

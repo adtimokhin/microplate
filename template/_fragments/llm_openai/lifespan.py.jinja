@@ -1,0 +1,16 @@
+
+
+async def _llm_openai_startup(app: FastAPI) -> None:
+    from {{ python_package }}.llm.openai.client import init_client
+
+    app.state.llm_openai = init_client()
+
+
+async def _llm_openai_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.llm.openai.client import close_client
+
+    await close_client()
+
+
+STARTUP_HOOKS.append(_llm_openai_startup)
+SHUTDOWN_HOOKS.append(_llm_openai_shutdown)

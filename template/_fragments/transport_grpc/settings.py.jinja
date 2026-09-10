@@ -1,0 +1,2 @@
+{% for peer in service_names if peer != service_name %}    peer_{{ peer | replace('-', '_') }}_grpc_target: str = "{{ peer }}:50051"
+{% endfor %}

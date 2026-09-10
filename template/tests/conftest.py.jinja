@@ -1,0 +1,38 @@
+{%- from 'includes/fragment_loops.jinja' import include_slot with context -%}
+"""Shared test fixtures.
+
+Base-owned (overlay-contract 4.3). Overlays add fixtures through
+``_fragments/<overlay-id>/conftest.py.jinja``, assembled in ``overlay_order``.
+Overlay fixture names are namespaced ``<overlay-id>_<thing>``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+import pytest
+from starlette.testclient import TestClient
+
+
+@pytest.fixture
+def app():
+    """A fresh application instance."""
+
+    # Imported lazily: ``main`` builds ``app = create_app()`` -> ``Settings()`` at
+    # import, so a module-scope import would raise ``ValidationError`` at pytest
+    # collection when an overlay declares a required env var with no default.
+    from {{ python_package }}.main import create_app
+
+    return create_app()
+
+
+@pytest.fixture
+def client(app) -> Iterator[TestClient]:
+    """Sync test client. Entering the context runs the app lifespan."""
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+# --- overlay fixtures (assembled in overlay_order) --------------------------
+{{ include_slot('conftest.py') }}

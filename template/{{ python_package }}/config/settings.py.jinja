@@ -1,0 +1,43 @@
+{%- from 'includes/fragment_loops.jinja' import include_slot with context -%}
+"""Application settings.
+
+Base-owned pydantic-settings loader (D-021). Every environment variable is read
+with the ``APP_`` prefix, so ``environment`` comes from ``APP_ENVIRONMENT``.
+
+Overlays never ship their own loader. They contribute field declarations through
+``_fragments/<overlay-id>/settings.py.jinja``, which are assembled into the
+``Settings`` class body below in ``overlay_order``.
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime configuration, loaded once and cached by :func:`get_settings`."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="APP_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # --- base fields -----------------------------------------------------------
+    environment: str = "local"
+    log_level: str = "INFO"
+    json_logs: bool = True
+    service_name: str = "{{ service_slug }}"
+
+    # --- overlay fields (assembled in overlay_order) -------------------------
+{{ include_slot('settings.py') }}
+
+@lru_cache
+def get_settings() -> Settings:
+    """Return the process-wide :class:`Settings`, building it on first use."""
+
+    return Settings()

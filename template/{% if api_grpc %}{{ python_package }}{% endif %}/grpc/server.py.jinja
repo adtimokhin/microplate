@@ -1,0 +1,146 @@
+"""The co-hosted ``grpc.aio`` server.
+
+Started and stopped by the FastAPI lifespan hook (``_fragments/api_grpc/
+lifespan.py.jinja``). Runs in the same event loop as the HTTP app; split it into
+its own process later by calling :meth:`GrpcRuntime.start` from a dedicated
+entrypoint instead.
+
+Wires three services onto one server:
+
+* ``example.v1.ExampleService`` - the example unary + server-streaming RPCs;
+* ``grpc.health.v1.Health`` - the standard async health service, set to SERVING
+  once the server is up and flipped to NOT_SERVING on graceful shutdown;
+* server reflection, so ``grpcurl`` and probes can discover the schema.
+"""
+
+# grpcio and its sibling packages ship no type stubs / py.typed marker; this
+# module is the single place their untyped surface is touched.
+# mypy: disable-error-code="import-untyped, no-untyped-call"
+from __future__ import annotations
+
+import contextlib
+import importlib
+from typing import Any
+
+import grpc
+from grpc_health.v1 import health_pb2, health_pb2_grpc
+from grpc_health.v1.health import aio as health_aio
+from grpc_reflection.v1alpha import reflection
+
+from {{ python_package }}.grpc._pb.example.v1 import example_pb2_grpc
+from {{ python_package }}.grpc.service import ExampleServicer
+
+EXAMPLE_SERVICE_NAME = "example.v1.ExampleService"
+HEALTH_SERVICE_NAME = "grpc.health.v1.Health"
+
+_SERVING = health_pb2.HealthCheckResponse.SERVING
+
+# Companion overlays (e.g. streaming_grpc) register extra servicers here at
+# import time. Each entry is ``(add_to_server_fn, *reflected_service_names)``.
+# The list is consumed once, in registration order, when the server starts.
+_EXTRA_SERVICERS: list[tuple[Any, tuple[str, ...]]] = []
+
+
+def register_servicer(add_to_server: Any, *service_names: str) -> None:
+    """Add a servicer to the co-hosted server before it starts.
+
+    ``add_to_server`` is a generated ``add_<Name>Servicer_to_server``-style
+    callable already bound to its servicer instance; ``service_names`` are the
+    fully-qualified names to advertise via reflection and mark SERVING.
+    """
+
+    _EXTRA_SERVICERS.append((add_to_server, service_names))
+
+
+class GrpcRuntime:
+    """Owns the lifecycle of the ``grpc.aio`` server for one app instance."""
+
+    def __init__(self, host: str, port: int) -> None:
+        self._host = host
+        self._port = port
+        self._server: Any = None
+        self._health: Any = None
+        self.bound_port: int | None = None
+
+    @property
+    def started(self) -> bool:
+        return self._server is not None
+
+    @property
+    def address(self) -> str:
+        """Loopback dial address for the bound server (tests, health probe)."""
+
+        if self.bound_port is None:
+            raise RuntimeError("gRPC server is not started")
+        host = "127.0.0.1" if self._host in ("0.0.0.0", "::", "") else self._host
+        return f"{host}:{self.bound_port}"
+
+    async def start(self) -> None:
+        if self._server is not None:
+            return
+
+        server = grpc.aio.server()
+        example_pb2_grpc.add_ExampleServiceServicer_to_server(ExampleServicer(), server)
+
+        extra_names: list[str] = []
+        for add_to_server, service_names in _EXTRA_SERVICERS:
+            add_to_server(server)
+            extra_names.extend(service_names)
+
+        health = health_aio.HealthServicer()
+        health_pb2_grpc.add_HealthServicer_to_server(health, server)
+
+        reflection.enable_server_reflection(
+            (EXAMPLE_SERVICE_NAME, HEALTH_SERVICE_NAME, *extra_names, reflection.SERVICE_NAME),
+            server,
+        )
+
+        self.bound_port = server.add_insecure_port(f"{self._host}:{self._port}")
+        await server.start()
+        await health.set("", _SERVING)
+        await health.set(EXAMPLE_SERVICE_NAME, _SERVING)
+        for name in extra_names:
+            await health.set(name, _SERVING)
+
+        self._server = server
+        self._health = health
+
+    async def probe(self) -> bool:
+        """Dial the co-hosted server over loopback and call ``Health/Check``."""
+
+        if self._server is None:
+            return False
+        async with grpc.aio.insecure_channel(self.address) as channel:
+            stub = health_pb2_grpc.HealthStub(channel)
+            request = health_pb2.HealthCheckRequest(service="")
+            response = await stub.Check(request, timeout=2.0)
+        return bool(response.status == _SERVING)
+
+    async def stop(self, grace: float = 5.0) -> None:
+        if self._health is not None:
+            await self._health.enter_graceful_shutdown()
+        if self._server is not None:
+            await self._server.stop(grace)
+        self._server = None
+        self._health = None
+        self.bound_port = None
+
+
+_runtime: GrpcRuntime | None = None
+
+
+def set_runtime(runtime: GrpcRuntime | None) -> None:
+    """Store (or clear) the process-wide runtime for the zero-arg health check."""
+
+    global _runtime
+    _runtime = runtime
+
+
+def get_runtime() -> GrpcRuntime | None:
+    return _runtime
+
+
+# Optional companion overlays register their servicers on import. Absent unless
+# the matching overlay was selected, so a failed import is expected and ignored.
+with contextlib.suppress(ImportError):
+    importlib.import_module("{{ python_package }}.streaming.grpc")

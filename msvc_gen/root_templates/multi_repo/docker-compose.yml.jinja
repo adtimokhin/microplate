@@ -1,0 +1,67 @@
+# Compose Specification. No top-level `version:` key (obsolete, D-010).
+# Root wiring layer for the multi_repo topology - rendered by
+# msvc_gen/topology.py, NOT by Copier. Re-rendered wholesale on `msvc-gen update`.
+#
+# Each service under this directory is its OWN repo with its OWN
+# docker-compose.yml. This aggregate file is a convenience for running the whole
+# mesh together locally before the repos are split to their own remotes.
+name: {{ repo_slug }}
+
+services:
+{%- for svc in services %}
+  {{ svc.slug }}:
+    build:
+      context: ./{{ svc.name }}
+      target: runtime
+    environment:
+      APP_ENVIRONMENT: local
+      APP_SERVICE_NAME: {{ svc.slug }}
+{%- if transport_grpc %}
+{%- for peer in svc.peers %}
+      APP_PEER_{{ peer.name | replace('-', '_') | upper }}_GRPC_TARGET: {{ peer.slug }}:50051
+{%- endfor %}
+{%- endif %}
+{%- if transport_rabbitmq %}
+      APP_TRANSPORT_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+{%- endif %}
+    ports:
+      - "{{ svc.http_port }}:8000"
+{%- if svc.depends_on %}
+    depends_on:
+{%- for dep in svc.depends_on %}
+      {{ dep }}:
+        condition: service_healthy
+{%- endfor %}
+{%- endif %}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/live').status==200 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+{%- endfor %}
+{%- for b in backing_services %}
+
+  {{ b.name }}:
+    image: {{ b.image }}
+{%- if b.environment %}
+    environment:
+{%- for k, v in b.environment.items() %}
+      {{ k }}: {{ v }}
+{%- endfor %}
+{%- endif %}
+    ports:
+{%- for p in b.ports %}
+      - "{{ p }}"
+{%- endfor %}
+    healthcheck:
+      test: ["CMD-SHELL", {{ b.healthcheck | tojson }}]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+{%- endfor %}

@@ -1,0 +1,27 @@
+"""Request-scoped session dependency.
+
+``get_session`` yields one :class:`AsyncSession` per request and rolls it back on
+an unhandled exception. Committing is the caller's responsibility, so a read-only
+handler pays nothing and a writing handler is explicit about its transaction
+boundary.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from {{ python_package }}.db.postgres.engine import get_session_factory
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    """FastAPI dependency: ``session = Depends(get_session)``."""
+
+    factory = get_session_factory()
+    async with factory() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise

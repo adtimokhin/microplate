@@ -1,0 +1,58 @@
+{%- from 'includes/fragment_loops.jinja' import include_slot with context -%}
+[project]
+name = "{{ service_slug }}"
+version = "0.1.0"
+description = "{{ service_name }} microservice"
+requires-python = ">=3.12"
+{% if license == 'mit' -%}
+license = "MIT"
+{% elif license == 'apache_2_0' -%}
+license = "Apache-2.0"
+{% else -%}
+license = { text = "Proprietary" }
+{% endif -%}
+dependencies = [
+    "fastapi==0.141.1",
+    "fastapi-cli==0.0.32",
+    "uvicorn[standard]==0.52.4",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "structlog==26.1.0",
+{{ include_slot('deps.toml') }}]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "httpx==0.28.1",
+    "ruff==0.16.6",
+    "mypy==2.3.1",
+{{ include_slot('dev-deps.toml') }}]
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["{{ python_package }}"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["{{ python_package }}"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+addopts = "-ra -q"
+testpaths = ["tests"]

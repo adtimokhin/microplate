@@ -1,0 +1,50 @@
+
+
+{% if tests_integration %}@pytest.fixture
+def mongodb_container() -> Iterator[str]:
+    """Real MongoDB 8.0 via testcontainers. Yields a connection URI."""
+    from testcontainers.mongodb import MongoDbContainer
+
+    with MongoDbContainer("mongo:8.0") as container:
+        yield container.get_connection_url()
+
+
+@pytest.fixture
+def mongodb_db(mongodb_container: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    """Point settings at the live container and reset the settings cache."""
+    from {{ python_package }}.config import get_settings
+
+    monkeypatch.setenv("APP_DB_MONGODB_URI", mongodb_container)
+    get_settings.cache_clear()
+    try:
+        yield mongodb_container
+    finally:
+        get_settings.cache_clear()
+{% else %}@pytest.fixture(autouse=True)
+def mongodb_db(monkeypatch: pytest.MonkeyPatch) -> object:
+    """Mock-mode client: a spec'd AsyncMock whose ``ping`` succeeds.
+
+    Autouse so every test sees a stubbed, healthy datastore with no container.
+    ``init_client`` is patched so the app lifespan installs this fake;
+    ``isinstance(fake, AsyncMongoClient)`` still holds because the mock is spec'd.
+    """
+    from unittest.mock import AsyncMock
+
+    from pymongo import AsyncMongoClient
+
+    from {{ python_package }}.db.mongodb import client as client_mod
+
+    fake_admin = AsyncMock()
+    fake_admin.command = AsyncMock(return_value={"ok": 1.0})
+
+    fake_client = AsyncMock(spec=AsyncMongoClient)
+    fake_client.admin = fake_admin
+    fake_client.close = AsyncMock(return_value=None)
+
+    def _fake_init() -> object:
+        client_mod._client = fake_client
+        return fake_client
+
+    monkeypatch.setattr(client_mod, "init_client", _fake_init)
+    return fake_client
+{% endif %}

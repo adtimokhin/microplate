@@ -1,0 +1,17 @@
+"""Redis overlay: redis-py asyncio client, shared connection pool, cache helper.
+
+Public surface:
+
+* :func:`~{{ python_package }}.db.redis.client.get_client` - the process-wide
+  :class:`redis.asyncio.Redis`, created by the app lifespan.
+* :func:`~{{ python_package }}.db.redis.client.cache_get_or_set` - read-through
+  cache helper.
+{%- if redis_pubsub %}
+* :mod:`{{ python_package }}.db.redis.pubsub` - ``publish`` / ``subscribe`` on a
+  dedicated pub/sub connection.
+{%- endif %}
+"""
+
+from {{ python_package }}.db.redis.client import cache_get_or_set, get_client
+
+__all__ = ["cache_get_or_set", "get_client"]

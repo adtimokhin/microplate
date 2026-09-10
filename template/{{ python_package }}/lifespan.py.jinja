@@ -1,0 +1,38 @@
+{%- from 'includes/fragment_loops.jinja' import include_slot with context -%}
+"""Application lifespan.
+
+Base-owned shared file (overlay-contract 4.5). The base keeps two ordered
+registries of async hooks. Each overlay contributes one startup hook and one
+shutdown hook through ``_fragments/<overlay-id>/lifespan.py.jinja`` and appends
+them to the registries.
+
+Startup runs the hooks in ``overlay_order``. Shutdown runs them in reverse.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+LifecycleHook = Callable[[FastAPI], Awaitable[None]]
+
+# Overlays append their hooks here, in overlay_order.
+STARTUP_HOOKS: list[LifecycleHook] = []
+SHUTDOWN_HOOKS: list[LifecycleHook] = []
+
+# --- overlay lifecycle hooks (assembled in overlay_order) -------------------
+{{ include_slot('lifespan.py') }}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Run overlay startup hooks, serve, then run shutdown hooks in reverse."""
+
+    for hook in STARTUP_HOOKS:
+        await hook(app)
+    try:
+        yield
+    finally:
+        for hook in reversed(SHUTDOWN_HOOKS):
+            await hook(app)

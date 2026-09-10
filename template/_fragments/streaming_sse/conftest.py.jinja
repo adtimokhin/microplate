@@ -1,0 +1,14 @@
+
+
+@pytest.fixture
+def sse_client():
+    """A test client bound to the app. The SSE route is wired into ``api_router``
+    at import time (``api_router.py`` fragment); no backing service.
+    """
+
+    from starlette.testclient import TestClient
+
+    from {{ python_package }}.main import app
+
+    with TestClient(app) as test_client:
+        yield test_client

@@ -1,0 +1,31 @@
+{#
+  fragment_loops.jinja
+  --------------------
+  Macro that walks the selected overlays in `overlay_order` and pulls each
+  overlay's fragment for one shared-file slot. Assembly happens here, in
+  Copier's render pass (overlay-contract 4). No post hook.
+
+  Usage inside a base-owned shared file:
+
+      {% from 'includes/fragment_loops.jinja' import include_slot with context %}
+      {{ include_slot('deps.toml') }}
+
+  Slots (fragment file name without the .jinja suffix), per overlay-contract 4.3:
+    deps.toml, compose.yml, settings.py, health.py, env.example,
+    conftest.py, ci-steps.yml, lifespan.py
+
+  A fragment lives at:  template/_fragments/<overlay-id>/<slot>.jinja
+  Missing fragments are skipped (an overlay only ships the slots it needs).
+  Whitespace inside a fragment is the fragment's responsibility; the base
+  skeleton owns the surrounding newlines.
+
+  Ordering: every slot is assembled in `overlay_order`. The lifespan shutdown
+  list is reversed at runtime by the base `lifespan.py`, not here, so a single
+  overlay_order walk is the only iteration this file needs.
+#}
+{%- macro include_slot(slot) -%}
+{%- from 'includes/answers_helpers.jinja' import selected_overlay_ids with context -%}
+{%- for _oid in selected_overlay_ids -%}
+{%- include ['template/_fragments/' ~ _oid ~ '/' ~ slot ~ '.jinja'] ignore missing with context -%}
+{%- endfor -%}
+{%- endmacro -%}

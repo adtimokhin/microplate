@@ -1,0 +1,22 @@
+
+
+async def _db_qdrant_startup(app: FastAPI) -> None:
+    import structlog
+
+    from {{ python_package }}.db.qdrant.client import ensure_collection, init_client
+
+    app.state.db_qdrant = init_client()
+    try:
+        await ensure_collection()
+    except Exception as exc:  # bootstrap is best-effort; readiness reports the truth
+        structlog.get_logger(__name__).warning("qdrant.ensure_collection_failed", error=repr(exc))
+
+
+async def _db_qdrant_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.db.qdrant.client import close_client
+
+    await close_client()
+
+
+STARTUP_HOOKS.append(_db_qdrant_startup)
+SHUTDOWN_HOOKS.append(_db_qdrant_shutdown)

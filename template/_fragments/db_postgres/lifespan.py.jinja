@@ -1,0 +1,16 @@
+
+
+async def _db_postgres_startup(app: FastAPI) -> None:
+    from {{ python_package }}.db.postgres.engine import init_engine
+
+    app.state.db_postgres = init_engine()
+
+
+async def _db_postgres_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.db.postgres.engine import dispose_engine
+
+    await dispose_engine()
+
+
+STARTUP_HOOKS.append(_db_postgres_startup)
+SHUTDOWN_HOOKS.append(_db_postgres_shutdown)

@@ -1,0 +1,68 @@
+"""Function-call-shaped HTTP routes (D-007, OpenAPI half).
+
+Each tool is one ``POST /tools/<name>`` operation with a stable ``operationId``,
+a summary, a description, and typed request/response models, so the generated
+OpenAPI reads cleanly as a function-calling tool catalogue. ``GET /tools``
+returns the same catalogue in the OpenAI ``{name, description, parameters}``
+shape. A separate MCP overlay (later) can expose these as MCP tools.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+from .examples import (
+    AddRequest,
+    AddResponse,
+    EchoRequest,
+    EchoResponse,
+    add,
+    echo,
+)
+from .registry import registry
+
+router = APIRouter(prefix="/tools", tags=["tools"])
+
+
+class ToolFunctionSpec(BaseModel):
+    """OpenAI-style function spec for one tool."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+
+
+@router.get(
+    "",
+    operation_id="list_tools",
+    summary="List callable tools",
+    description=(
+        "Every tool as an OpenAI-style function spec: name, description, and a "
+        "JSON-Schema `parameters` object. Feed these straight to a function-calling model."
+    ),
+)
+async def list_tools() -> list[ToolFunctionSpec]:
+    return [ToolFunctionSpec(**spec) for spec in registry.specs()]
+
+
+@router.post(
+    "/echo",
+    operation_id="echo",
+    summary="Echo the given text back unchanged.",
+    description="Return the input text verbatim. Handy as a connectivity check for tool callers.",
+)
+async def echo_route(payload: EchoRequest) -> EchoResponse:
+    return await echo(payload)
+
+
+@router.post(
+    "/add",
+    operation_id="add",
+    summary="Add two numbers and return their sum.",
+    description="Add `a` and `b` and return their sum.",
+)
+async def add_route(payload: AddRequest) -> AddResponse:
+    return await add(payload)

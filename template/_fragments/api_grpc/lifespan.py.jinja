@@ -1,0 +1,28 @@
+
+
+async def _api_grpc_startup(app: FastAPI) -> None:
+    import structlog
+
+    from {{ python_package }}.config import get_settings
+    from {{ python_package }}.grpc import GrpcRuntime, set_runtime
+
+    settings = get_settings()
+    runtime = GrpcRuntime(settings.grpc_host, settings.grpc_port)
+    await runtime.start()
+    app.state.grpc_server = runtime
+    set_runtime(runtime)
+    structlog.get_logger(__name__).info("grpc server started", address=runtime.address)
+
+
+async def _api_grpc_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.grpc import set_runtime
+
+    runtime = getattr(app.state, "grpc_server", None)
+    if runtime is not None:
+        await runtime.stop()
+    app.state.grpc_server = None
+    set_runtime(None)
+
+
+STARTUP_HOOKS.append(_api_grpc_startup)
+SHUTDOWN_HOOKS.append(_api_grpc_shutdown)

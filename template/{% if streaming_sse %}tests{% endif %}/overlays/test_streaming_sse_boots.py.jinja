@@ -1,0 +1,21 @@
+"""streaming_sse proves-it-boots test (overlay-contract 7).
+
+Runs offline: SSE is served straight from the app, no backing service. The
+overlay's router is wired into ``api_router`` at import time via the
+``api_router.py`` fragment, so the route is live as soon as the app is built.
+"""
+
+from __future__ import annotations
+
+
+def test_streaming_sse_boots(sse_client) -> None:
+    schema = sse_client.get("/openapi.json").json()
+    assert "/stream/sse" in schema["paths"], "SSE route missing from the OpenAPI schema"
+
+    response = sse_client.get("/stream/sse", params={"count": 3, "delay": 0})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+    body = response.text
+    assert body.count("data: tick ") == 3
+    assert "event: done" in body

@@ -1,0 +1,44 @@
+"""``python -m {{ python_package }}.prompts --check``: validate every prompt file.
+
+Wired into CI by ``_fragments/prompt_management/ci-steps.yml.jinja`` so a
+malformed prompt file fails the build. Exit 0 if every ``*.toml`` under
+``APP_PROMPTS_DIR`` parses and validates, exit 1 otherwise.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+from {{ python_package }}.prompts.registry import PromptError, load_registry
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="{{ python_package }}.prompts")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="validate all prompt files and exit non-zero on any error",
+    )
+    parser.add_argument(
+        "--dir",
+        default=None,
+        help="prompts directory (default: APP_PROMPTS_DIR from settings)",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        registry = load_registry(args.dir)
+    except PromptError as exc:
+        print(f"prompt validation failed: {exc}", file=sys.stderr)
+        return 1
+
+    for name in registry.names():
+        versions = ", ".join(str(v) for v in registry.versions(name))
+        print(f"ok  {name}  (versions: {versions})")
+    print(f"{len(registry)} prompt file(s) valid")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

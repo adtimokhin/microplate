@@ -1,0 +1,46 @@
+"""Deterministic sample call: one-sentence summary via the Messages API.
+
+A fixed system instruction pins the behaviour. ``anthropic`` 1.x removed the
+top-level ``temperature`` argument to ``messages.create``; for this provider
+determinism comes from the prompt plus the recorded-response test harness, not a
+sampling parameter (research/ai-stack.md 3). Replace with a real handler; the
+shape (typed request in, typed value out, ``tenacity`` retry) is the point.
+"""
+
+from __future__ import annotations
+
+from anthropic import APIConnectionError, APIStatusError, RateLimitError
+from anthropic.types import MessageParam
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+from {{ python_package }}.config import get_settings
+from {{ python_package }}.llm.anthropic.client import get_client
+
+_SYSTEM_PROMPT = "Summarize the user's text in one faithful sentence. No preamble."
+_MAX_TOKENS = 512
+
+
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=0.5, max=8),
+    retry=retry_if_exception_type((APIConnectionError, RateLimitError, APIStatusError)),
+)
+async def summarize(text: str) -> str:
+    """Return a one-sentence summary of ``text``."""
+
+    settings = get_settings()
+    messages: list[MessageParam] = [{"role": "user", "content": text}]
+    message = await get_client().messages.create(
+        model=settings.llm_anthropic_model,
+        max_tokens=_MAX_TOKENS,
+        system=_SYSTEM_PROMPT,
+        messages=messages,
+    )
+    block = message.content[0]
+    return block.text if block.type == "text" else ""

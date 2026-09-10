@@ -1,0 +1,21 @@
+"""``streaming.v1.ChatService`` - the bidi-streaming example implementation.
+
+Reads the client's message stream and yields one reply per message. Duck-typed
+against the generated ``add_ChatServiceServicer_to_server`` helper, so no
+subclass of the generated servicer base is needed.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from typing import Any
+
+from {{ python_package }}.grpc._pb.streaming.v1 import chat_pb2
+
+
+class ChatServicer:
+    """Echo each inbound message back upper-cased, preserving ``seq``."""
+
+    async def Chat(self, request_iterator: Any, context: Any) -> AsyncIterator[Any]:
+        async for message in request_iterator:
+            yield chat_pb2.ChatMessage(seq=message.seq, text=message.text.upper())

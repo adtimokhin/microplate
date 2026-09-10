@@ -1,0 +1,25 @@
+"""Qdrant overlay: async client, create-if-not-exists collection bootstrap.
+
+Public surface:
+
+* :func:`~{{ python_package }}.db.qdrant.client.get_client` - the process-wide
+  :class:`~qdrant_client.AsyncQdrantClient`, created by the app lifespan.
+* :func:`~{{ python_package }}.db.qdrant.client.ensure_collection` - idempotent
+  bootstrap, run once at startup.
+* :func:`~{{ python_package }}.db.qdrant.client.upsert` /
+  :func:`~{{ python_package }}.db.qdrant.client.search` - thin helpers over the
+  configured collection.
+
+The collection dimension is ``APP_QDRANT_VECTOR_SIZE`` (defaulted from the
+``embedding_vector_size`` answer). The embedding pipeline itself is a separate AI
+overlay.
+"""
+
+from {{ python_package }}.db.qdrant.client import (
+    ensure_collection,
+    get_client,
+    search,
+    upsert,
+)
+
+__all__ = ["ensure_collection", "get_client", "search", "upsert"]

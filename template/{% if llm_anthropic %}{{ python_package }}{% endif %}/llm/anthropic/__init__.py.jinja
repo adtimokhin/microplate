@@ -1,0 +1,14 @@
+"""Anthropic client overlay (D-002).
+
+Async :class:`~anthropic.AsyncAnthropic` bound to the app lifespan, ``tenacity``
+retry around the sample call, and one deterministic
+``POST /llm/anthropic/summarize`` route wired through the ``api_router`` slot.
+
+The client base URL is ``APP_LLM_ANTHROPIC_BASE_URL`` (falls back to the SDK's
+``ANTHROPIC_BASE_URL``); point it at a local fake for offline tests (D-013).
+"""
+
+from {{ python_package }}.llm.anthropic.client import close_client, get_client, init_client
+from {{ python_package }}.llm.anthropic.summarize import summarize
+
+__all__ = ["close_client", "get_client", "init_client", "summarize"]
