@@ -14,7 +14,6 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 {% if llm_openai or llm_anthropic or langsmith %}
-
 # Collection-time placeholders for required-no-default secrets (D-030 class 2,
 # D-037). ``setdefault`` never clobbers a real value; per-test fixtures still
 # override via ``monkeypatch.setenv``. Needed because some overlay boots tests
@@ -24,7 +23,6 @@ from starlette.testclient import TestClient
 {% endif %}{% if langsmith %}os.environ.setdefault("APP_LANGSMITH_API_KEY", "test-collection-placeholder")
 os.environ.setdefault("APP_LANGSMITH_TRACING", "false")
 {% endif %}{% endif %}
-
 
 @pytest.fixture
 def app():

@@ -51,24 +51,13 @@ def _register_grpc(server: MCPServer) -> None:
 {% endif %}
 
 def _register_one(server: MCPServer, name: str, description: str, fn: Any) -> None:
-    """Register one tool, tolerating the v2 SDK's exact registration surface."""
-    registered = False
-    for attempt in ("tool_decorator", "add_tool_fn", "register_tool"):
-        try:
-            if attempt == "tool_decorator":
-                server.tool(name=name, description=description)(fn)
-            elif attempt == "add_tool_fn":
-                server.add_tool(fn, name=name, description=description)
-            else:
-                server.register_tool(name, description, fn)
-            registered = True
-            break
-        except (AttributeError, TypeError):
-            continue
-    if registered:
-        _TOOL_NAMES.append(name)
-    else:  # pragma: no cover - SDK surface changed
-        logger.warning("could not register MCP tool %r on the pinned mcp SDK", name)
+    """Register one tool via the mcp v2 SDK's ``add_tool`` surface (``mcp==2.2.0``)."""
+    try:
+        server.add_tool(fn, name=name, description=description)
+    except (AttributeError, TypeError) as exc:  # pragma: no cover - SDK surface changed
+        logger.warning("could not register MCP tool %r on the pinned mcp SDK: %r", name, exc)
+        return
+    _TOOL_NAMES.append(name)
 
 
 def get_server() -> MCPServer:

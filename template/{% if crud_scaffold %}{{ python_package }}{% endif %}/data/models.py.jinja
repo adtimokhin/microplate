@@ -1,0 +1,46 @@
+"""The ``{{ crud_entity }}`` entity: API models{% if crud_backend == 'postgres' %} and the SQLAlchemy table{% endif %}.
+
+Replace these with your real entity. The repository and routes are generic over
+the field set, so adding a column/field means editing this file plus the
+``{{ crud_entity | capitalize }}Create`` / ``{{ crud_entity | capitalize }}Update`` shapes.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, Field
+{% if crud_backend == 'postgres' %}from sqlalchemy import DateTime, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from {{ python_package }}.db.postgres.models import Base
+
+
+class {{ crud_entity | capitalize }}Row(Base):
+    __tablename__ = "{{ crud_entity }}s"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), index=True)
+    description: Mapped[str] = mapped_column(String(1000), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+{% endif %}
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+class {{ crud_entity | capitalize }}Create(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+
+
+class {{ crud_entity | capitalize }}Update(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
+
+
+class {{ crud_entity | capitalize }}(BaseModel):
+    id: str
+    name: str
+    description: str
+    created_at: datetime

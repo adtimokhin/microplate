@@ -41,6 +41,7 @@ overlay_order:
   - db_mongodb
   - db_redis
   - db_qdrant
+  - crud_scaffold
   - messaging_rabbitmq
   - api_grpc
   - tool_scaffold
@@ -399,6 +400,52 @@ options:
     build_status: implemented
     milestone: 4
     notes: "Sole vector store in v1 (D-001)."
+
+  crud_scaffold:
+    key: crud_scaffold
+    group: data
+    prompt: "Add a CRUD data-access scaffold (example entity + repository + REST endpoints)?"
+    type: bool
+    default: false
+    gate: "crud_scaffold"
+    overlay_id: crud_scaffold
+    template_paths:
+      - "template/{% if crud_scaffold %}{{ python_package }}{% endif %}/data"
+    requires:
+      - { expr: "db_postgres or db_mongodb or db_redis", message: "CRUD scaffold needs a relational, document, or key-value store (db_postgres, db_mongodb, or db_redis)." }
+    python_deps: {}
+    env_vars: []
+    fixtures:
+      - { name: crud_repository, kind: mock }
+    health_checks: []
+    ci_steps: "Deterministic offline tests (in-memory repository)."
+    boots_test: "tests/overlays/test_crud_scaffold_boots.py"
+    build_status: implemented
+    milestone: 7
+    notes: "D-039. Backend picked at render time by priority db_postgres > db_mongodb > db_redis (crud_backend computed key). Example entity name is crud_entity. Ships an async repository (create/get/list/update/delete/count/exists) + a REST router at /<entity>s + an InMemory<Entity>Repository for offline tests."
+
+  crud_entity:
+    key: crud_entity
+    group: data
+    prompt: "CRUD example entity name (lower snake_case, e.g. item, widget, order)"
+    type: str
+    default: "item"
+    when: "crud_scaffold"
+    validator_rule: "must match ^[a-z][a-z0-9_]{0,30}$"
+    build_status: implemented
+    milestone: 7
+    notes: "D-039. Class = capitalized, table/collection/route = <entity>s."
+
+  crud_backend:
+    key: crud_backend
+    group: data
+    prompt: "computed"
+    type: str
+    when: false
+    default: "{% if db_postgres %}postgres{% elif db_mongodb %}mongodb{% else %}redis{% endif %}"
+    build_status: implemented
+    milestone: 7
+    notes: "D-039. Computed: the datastore the CRUD scaffold binds to. Priority postgres > mongodb > redis."
 
   # ---- messaging ---------------------------------------------------
   messaging_rabbitmq:

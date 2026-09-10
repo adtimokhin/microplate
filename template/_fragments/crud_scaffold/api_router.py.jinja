@@ -1,0 +1,4 @@
+    from {{ python_package }}.data.routes import router as _crud_router
+
+    api_router.include_router(_crud_router)
+

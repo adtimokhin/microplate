@@ -1,0 +1,13 @@
+# Datastore slice: a plain backend service with a relational store and a cache.
+# Used by scripts/verify_update.sh as the datastore `copier update` slice and
+# as a minimal "two datastores in one service" example.
+service_name: shop-orders
+license: proprietary
+db_postgres: true
+db_redis: true
+redis_pubsub: true
+tests_unit: true
+tests_integration: false
+logging_structured: true
+docker: true
+ci: github_actions

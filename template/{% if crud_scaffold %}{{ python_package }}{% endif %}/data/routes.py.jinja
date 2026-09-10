@@ -1,0 +1,72 @@
+"""REST CRUD endpoints for ``{{ crud_entity }}`` at ``/{{ crud_entity }}s`` (backend: {{ crud_backend }}).
+
+- ``POST   /{{ crud_entity }}s``        create
+- ``GET    /{{ crud_entity }}s``        list (limit / offset)
+- ``GET    /{{ crud_entity }}s/count``  count
+- ``GET    /{{ crud_entity }}s/{id}``   get one
+- ``PATCH  /{{ crud_entity }}s/{id}``   partial update
+- ``DELETE /{{ crud_entity }}s/{id}``   delete
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from {{ python_package }}.data import repository as _repo
+from {{ python_package }}.data.models import (
+    {{ crud_entity | capitalize }},
+    {{ crud_entity | capitalize }}Create,
+    {{ crud_entity | capitalize }}Update,
+)
+
+
+def _get_repo() -> _repo.{{ crud_entity | capitalize }}Repository:
+    return _repo.get_repository()
+
+
+Repo = Annotated[_repo.{{ crud_entity | capitalize }}Repository, Depends(_get_repo)]
+
+router = APIRouter(prefix="/{{ crud_entity }}s", tags=["{{ crud_entity }}s"])
+
+
+@router.post("", operation_id="{{ crud_entity }}_create", status_code=status.HTTP_201_CREATED)
+async def create_{{ crud_entity }}(payload: {{ crud_entity | capitalize }}Create, repo: Repo) -> {{ crud_entity | capitalize }}:
+    return await repo.create(payload)
+
+
+@router.get("", operation_id="{{ crud_entity }}_list")
+async def list_{{ crud_entity }}s(
+    repo: Repo,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[{{ crud_entity | capitalize }}]:
+    return await repo.list(limit=limit, offset=offset)
+
+
+@router.get("/count", operation_id="{{ crud_entity }}_count")
+async def count_{{ crud_entity }}s(repo: Repo) -> dict[str, int]:
+    return {"count": await repo.count()}
+
+
+@router.get("/{entity_id}", operation_id="{{ crud_entity }}_get")
+async def get_{{ crud_entity }}(entity_id: str, repo: Repo) -> {{ crud_entity | capitalize }}:
+    row = await repo.get(entity_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "{{ crud_entity }} not found")
+    return row
+
+
+@router.patch("/{entity_id}", operation_id="{{ crud_entity }}_update")
+async def update_{{ crud_entity }}(entity_id: str, payload: {{ crud_entity | capitalize }}Update, repo: Repo) -> {{ crud_entity | capitalize }}:
+    row = await repo.update(entity_id, payload)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "{{ crud_entity }} not found")
+    return row
+
+
+@router.delete("/{entity_id}", operation_id="{{ crud_entity }}_delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_{{ crud_entity }}(entity_id: str, repo: Repo) -> None:
+    if not await repo.delete(entity_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "{{ crud_entity }} not found")

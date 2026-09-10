@@ -154,6 +154,26 @@ db_qdrant:
   help: "Add Qdrant vector store (client + collection bootstrap)?"
   default: false
 
+crud_scaffold:
+  type: bool
+  help: "Add a CRUD data-access scaffold (example entity + repository + REST endpoints)?"
+  default: false
+  validator: >-
+    {% if crud_scaffold and not (db_postgres or db_mongodb or db_redis) %}
+    CRUD scaffold needs a relational, document, or key-value store (db_postgres, db_mongodb, or db_redis).
+    {% endif %}
+
+crud_entity:
+  type: str
+  help: "CRUD example entity name (lower snake_case, e.g. item, widget, order)"
+  default: "item"
+  when: "crud_scaffold"
+
+crud_backend:
+  type: str
+  default: "{% if db_postgres %}postgres{% elif db_mongodb %}mongodb{% else %}redis{% endif %}"
+  when: false
+
 # ---- messaging: Messaging ------------------------------------------
 messaging_rabbitmq:
   type: bool

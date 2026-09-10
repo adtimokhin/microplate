@@ -1,0 +1,28 @@
+# RAG backend: a retrieval service an agent queries.
+#
+# Qdrant vector store + an embedding pipeline that ingests documents into it,
+# an OpenAI client for generation, and LangChain wiring a `prompt | model |
+# parser` summarize chain plus a Qdrant retrieval chain. LLM traffic is stubbed
+# offline in tests (llm_response_mode: mock_transport), so `pytest` needs no API
+# key; a real key (APP_LLM_OPENAI_API_KEY) is only needed to run the service.
+#
+# Constraint chain that makes this valid:
+#   embedding_pipeline -> db_qdrant (V-4)
+#   langchain          -> llm_openai or llm_anthropic (V-7)
+#   langchain_retrieval-> langchain and db_qdrant (V-6)
+#   embedding_backend=openai -> llm_openai (V-8)
+service_name: rag-search
+license: proprietary
+db_qdrant: true
+llm_openai: true
+langchain: true
+langchain_retrieval: true
+embedding_pipeline: true
+embedding_backend: openai
+embedding_vector_size: 1536
+llm_response_mode: mock_transport
+tests_unit: true
+tests_integration: false
+logging_structured: true
+docker: true
+ci: github_actions

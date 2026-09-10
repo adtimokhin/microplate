@@ -326,6 +326,7 @@ PER_SERVICE_KEYS = frozenset(
         "langchain_retrieval", "embedding_pipeline", "embedding_backend",
         "embedding_vector_size", "langgraph", "langgraph_checkpoint", "langsmith",
         "otel_tracing",
+        "crud_scaffold", "crud_entity", "crud_backend",
         "tests_unit", "tests_integration", "llm_response_mode", "docker",
     }
 )  # fmt: skip

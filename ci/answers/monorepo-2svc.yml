@@ -1,0 +1,30 @@
+# Two-service monorepo: an API service and a background worker in one repo,
+# each a complete standalone project under services/<name>/ with its own
+# pyproject.toml, uv.lock, tests and Dockerfile. A thin root layer (root
+# docker-compose.yml, shared proto/, root CI) wires them together.
+#
+# `topology`, `service_names`, `transport_*` and `tests_contract` are answered
+# ONCE at the top level (shared mesh fabric). Per-service overlay choices go in
+# `services_config`; a name omitted there renders as an all-defaults service.
+#
+# Constraint chain:
+#   topology != single           -> a transport is required (V-1) -> both set here
+#   tests_contract               -> topology != single and transport_grpc (V-11)
+#   transport_grpc               -> some service enables api_grpc (V-18) -> `api` does
+#   services_config keys         -> must appear in service_names (V-15)
+service_name: shop-platform
+topology: monorepo
+service_names: [api, worker]
+transport_grpc: true
+transport_rabbitmq: true
+tests_contract: true
+license: proprietary
+ci: github_actions
+services_config:
+  api:
+    api_grpc: true
+    db_postgres: true
+    tool_scaffold: true
+  worker:
+    messaging_rabbitmq: true
+    db_redis: true

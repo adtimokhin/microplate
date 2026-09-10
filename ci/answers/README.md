@@ -1,11 +1,24 @@
 # ci/answers/
 
-Fixed answers files rendered by the determinism job (`scripts/check_determinism.py`)
-and, later, by the Testing Engineer's pairwise harness. Each file is a complete,
-valid answers set (scope §6): every question that lacks a default must be present.
+Complete, valid answers sets (scope §6): `service_name` plus every answer that
+differs from a registry default or is forced by a `validation_rule`. Rendered by:
 
-Add one file per combination worth guarding. Keep them small and named for the
-combo: `zero-overlay.yml`, `postgres-only.yml`, `postgres-rabbitmq.yml`, ...
+- `scripts/check_determinism.py` (each file rendered twice, asserted
+  byte-identical),
+- `scripts/verify_update.sh` (the `copier update` / `msvc-gen update` clean-apply
+  gate),
+- `harness/run.py` (targeted combinations),
+- `docs/usage-examples.md` and `docs/non-interactive.md`.
 
-Until the base template lands these are inert; the determinism job skips when
-there is no `copier.yml` at the repo root.
+| File | Shape |
+| --- | --- |
+| `zero-overlay.yml` | plain FastAPI service, no overlays |
+| `otel-only.yml` | one overlay: OpenTelemetry (exercises `_fragments` exclusion + the `tests/overlays/` boots-test subtree) |
+| `datastore-postgres-redis.yml` | PostgreSQL + Redis + Redis pub/sub |
+| `rag-backend.yml` | Qdrant + OpenAI + LangChain (+ retrieval) + embedding pipeline (openai backend, 1536): a retrieval backend an agent queries |
+| `agent-langgraph.yml` | PostgreSQL + Redis + a LangGraph graph checkpointed to Postgres |
+| `monorepo-2svc.yml` | two-service monorepo (`api` + `worker`), gRPC + RabbitMQ transport, contract tests. Multi-service: `check_determinism.py` renders it as a degenerate single tree; the real per-service path is exercised by `verify_update.sh` |
+| `sample-agent-service.yml` | Postgres + Redis + RabbitMQ + gRPC + OpenTelemetry |
+
+Naming: name the file for the combo. Keep each file small - only the keys that
+matter for that combo, plus `service_name`.

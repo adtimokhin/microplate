@@ -1,0 +1,11 @@
+
+
+@pytest.fixture(autouse=True)
+def crud_repository(monkeypatch: pytest.MonkeyPatch) -> Iterator[object]:
+    """Offline CRUD: swap the {{ crud_backend }}-backed repository for an in-memory
+    one so create/read/update/delete run with no datastore."""
+    from {{ python_package }}.data import repository as repo_mod
+
+    store = repo_mod.InMemory{{ crud_entity | capitalize }}Repository()
+    monkeypatch.setattr(repo_mod, "get_repository", lambda: store)
+    yield store

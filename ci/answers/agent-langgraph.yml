@@ -1,0 +1,20 @@
+# Agent service: the one place agent-style control flow lives in a generated
+# service. A minimal LangGraph StateGraph (`prepare -> respond`) behind
+# `POST /langgraph/run`, checkpointed to PostgreSQL via AsyncPostgresSaver
+# (psycopg3), so a conversation can resume on a re-used `thread_id`. Redis is
+# added for short-term state / caching alongside the checkpoint store.
+#
+# Constraint chain:
+#   langgraph            -> db_postgres or db_redis (V-5)
+#   langgraph_checkpoint=postgres -> db_postgres (V-9)
+service_name: agent-runner
+license: proprietary
+db_postgres: true
+db_redis: true
+langgraph: true
+langgraph_checkpoint: postgres
+tests_unit: true
+tests_integration: false
+logging_structured: true
+docker: true
+ci: github_actions

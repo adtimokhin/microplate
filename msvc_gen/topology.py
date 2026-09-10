@@ -110,6 +110,9 @@ PER_SERVICE_ALLOWED_KEYS = frozenset(
         "langgraph_checkpoint",
         "langsmith",
         "otel_tracing",
+        "crud_scaffold",
+        "crud_entity",
+        "crud_backend",
         "tests_unit",
         "tests_integration",
         "llm_response_mode",
@@ -276,6 +279,9 @@ def _render_tree(src: Path, dst: Path, ctx: dict[str, Any]) -> list[Path]:
         target = dst / rel_out
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(rendered)
+        # Preserve the source file's mode so a rendered script keeps its +x bit
+        # (Copier does this for its own renders; the root layer must match).
+        target.chmod(path.stat().st_mode & 0o777)
         written.append(target)
     return written
 

@@ -26,7 +26,8 @@ async def _prepare(state: GraphState) -> dict[str, Any]:
 
 
 def message_text(msg: Any) -> str:
-    return msg.content if hasattr(msg, "content") else msg.get("content", "")
+    text = msg.content if hasattr(msg, "content") else msg.get("content", "")
+    return str(text)
 
 
 async def _respond(state: GraphState) -> dict[str, Any]:
@@ -35,7 +36,7 @@ async def _respond(state: GraphState) -> dict[str, Any]:
     return {"messages": [{"role": "assistant", "content": reply}]}
 
 
-def _build() -> StateGraph:
+def _build() -> StateGraph[GraphState, Any, Any, Any]:
     g = StateGraph(GraphState)
     g.add_node("prepare", _prepare)
     g.add_node("respond", _respond)

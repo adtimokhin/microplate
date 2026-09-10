@@ -1,0 +1,267 @@
+"""Async repository for ``{{ crud_entity }}`` backed by {{ crud_backend }}.
+
+Interface (all async): ``create`` ``get`` ``list`` ``update`` ``delete``
+``count`` ``exists``. ``get_repository()`` is the FastAPI dependency; tests
+patch it to ``InMemory{{ crud_entity | capitalize }}Repository``.
+"""
+
+from __future__ import annotations
+
+import uuid
+{% if crud_backend == 'redis' %}from collections.abc import Mapping
+{% endif %}from typing import {% if crud_backend == 'redis' %}Any, {% endif %}Protocol
+
+{% if crud_backend == 'postgres' %}from sqlalchemy.ext.asyncio import AsyncSession
+
+{% endif %}from {{ python_package }}.data.models import (
+    {{ crud_entity | capitalize }},
+    {{ crud_entity | capitalize }}Create,
+    {{ crud_entity | capitalize }}Update,
+    _now,
+)
+
+Entity = {{ crud_entity | capitalize }}
+
+
+class {{ crud_entity | capitalize }}Repository(Protocol):
+    async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity: ...
+    async def get(self, entity_id: str) -> Entity | None: ...
+    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]: ...
+    async def update(self, entity_id: str, data: {{ crud_entity | capitalize }}Update) -> Entity | None: ...
+    async def delete(self, entity_id: str) -> bool: ...
+    async def count(self) -> int: ...
+    async def exists(self, entity_id: str) -> bool: ...
+
+
+class InMemory{{ crud_entity | capitalize }}Repository:
+    """In-process dict store. Used by the offline test fixture (D-039)."""
+
+    def __init__(self) -> None:
+        self._rows: dict[str, Entity] = {}
+
+    async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity:
+        row = Entity(id=str(uuid.uuid4()), created_at=_now(), **data.model_dump())
+        self._rows[row.id] = row
+        return row
+
+    async def get(self, entity_id: str) -> Entity | None:
+        return self._rows.get(entity_id)
+
+    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]:
+        rows = sorted(self._rows.values(), key=lambda r: r.created_at)
+        return rows[offset : offset + limit]
+
+    async def update(self, entity_id: str, data: {{ crud_entity | capitalize }}Update) -> Entity | None:
+        row = self._rows.get(entity_id)
+        if row is None:
+            return None
+        updated = row.model_copy(update=data.model_dump(exclude_none=True))
+        self._rows[entity_id] = updated
+        return updated
+
+    async def delete(self, entity_id: str) -> bool:
+        return self._rows.pop(entity_id, None) is not None
+
+    async def count(self) -> int:
+        return len(self._rows)
+
+    async def exists(self, entity_id: str) -> bool:
+        return entity_id in self._rows
+
+{% if crud_backend == 'postgres' %}
+class Postgres{{ crud_entity | capitalize }}Repository:
+    """SQLAlchemy 2.x async repository. Opens a short session per operation via
+    the shared session factory. Run ``alembic revision --autogenerate`` after
+    generation so the ``{{ crud_entity }}s`` table is created."""
+
+    def _session(self) -> AsyncSession:
+        from {{ python_package }}.db.postgres.engine import get_session_factory
+
+        return get_session_factory()()
+
+    async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity:
+        from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
+
+        row = {{ crud_entity | capitalize }}Row(id=str(uuid.uuid4()), created_at=_now(), **data.model_dump())
+        async with self._session() as s:
+            s.add(row)
+            await s.commit()
+            return Entity.model_validate(row, from_attributes=True)
+
+    async def get(self, entity_id: str) -> Entity | None:
+        from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
+
+        async with self._session() as s:
+            row = await s.get({{ crud_entity | capitalize }}Row, entity_id)
+            return Entity.model_validate(row, from_attributes=True) if row else None
+
+    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]:
+        from sqlalchemy import select
+
+        from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
+
+        stmt = select({{ crud_entity | capitalize }}Row).order_by({{ crud_entity | capitalize }}Row.created_at)
+        stmt = stmt.limit(limit).offset(offset)
+        async with self._session() as s:
+            rows = (await s.execute(stmt)).scalars().all()
+        return [Entity.model_validate(r, from_attributes=True) for r in rows]
+
+    async def update(self, entity_id: str, data: {{ crud_entity | capitalize }}Update) -> Entity | None:
+        from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
+
+        async with self._session() as s:
+            row = await s.get({{ crud_entity | capitalize }}Row, entity_id)
+            if row is None:
+                return None
+            for field, value in data.model_dump(exclude_none=True).items():
+                setattr(row, field, value)
+            await s.commit()
+            return Entity.model_validate(row, from_attributes=True)
+
+    async def delete(self, entity_id: str) -> bool:
+        from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
+
+        async with self._session() as s:
+            row = await s.get({{ crud_entity | capitalize }}Row, entity_id)
+            if row is None:
+                return False
+            await s.delete(row)
+            await s.commit()
+            return True
+
+    async def count(self) -> int:
+        from sqlalchemy import func, select
+
+        from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
+
+        stmt = select(func.count()).select_from({{ crud_entity | capitalize }}Row)
+        async with self._session() as s:
+            return int((await s.execute(stmt)).scalar_one())
+
+    async def exists(self, entity_id: str) -> bool:
+        return await self.get(entity_id) is not None
+
+
+def get_repository() -> {{ crud_entity | capitalize }}Repository:
+    return Postgres{{ crud_entity | capitalize }}Repository()
+{% elif crud_backend == 'mongodb' %}
+class Mongo{{ crud_entity | capitalize }}Repository:
+    def __init__(self) -> None:
+        from {{ python_package }}.db.mongodb import get_database
+
+        self._col = get_database()["{{ crud_entity }}s"]
+
+    def _to_entity(self, doc: dict[str, object]) -> Entity:
+        return Entity(
+            id=str(doc["_id"]),
+            name=str(doc["name"]),
+            description=str(doc.get("description", "")),
+            created_at=doc["created_at"],
+        )
+
+    async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity:
+        doc = {"_id": str(uuid.uuid4()), "created_at": _now(), **data.model_dump()}
+        await self._col.insert_one(doc)
+        return self._to_entity(doc)
+
+    async def get(self, entity_id: str) -> Entity | None:
+        doc = await self._col.find_one({"_id": entity_id})
+        return self._to_entity(doc) if doc else None
+
+    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]:
+        cur = self._col.find().sort("created_at", 1).skip(offset).limit(limit)
+        return [self._to_entity(d) async for d in cur]
+
+    async def update(self, entity_id: str, data: {{ crud_entity | capitalize }}Update) -> Entity | None:
+        patch = data.model_dump(exclude_none=True)
+        if patch:
+            await self._col.update_one({"_id": entity_id}, {"$set": patch})
+        return await self.get(entity_id)
+
+    async def delete(self, entity_id: str) -> bool:
+        res = await self._col.delete_one({"_id": entity_id})
+        return res.deleted_count == 1
+
+    async def count(self) -> int:
+        return await self._col.count_documents({})
+
+    async def exists(self, entity_id: str) -> bool:
+        return await self._col.find_one({"_id": entity_id}, {"_id": 1}) is not None
+
+
+def get_repository() -> {{ crud_entity | capitalize }}Repository:
+    return Mongo{{ crud_entity | capitalize }}Repository()
+{% else %}
+class Redis{{ crud_entity | capitalize }}Repository:
+    """One Redis hash per {{ crud_entity }} at ``{{ crud_entity }}:<id>``, plus a sorted set
+    ``{{ crud_entity }}:index`` (score = created_at) for ordered listing."""
+
+    _INDEX = "{{ crud_entity }}:index"
+
+    def __init__(self) -> None:
+        from {{ python_package }}.db.redis import get_client
+
+        self._r = get_client()
+
+    def _key(self, entity_id: str) -> str:
+        return f"{{ crud_entity }}:{entity_id}"
+
+    def _to_entity(self, entity_id: str, h: Mapping[Any, Any]) -> Entity:
+        from datetime import datetime
+
+        d = {str(k): str(v) for k, v in h.items()}
+        return Entity(
+            id=entity_id,
+            name=d["name"],
+            description=d.get("description", ""),
+            created_at=datetime.fromisoformat(d["created_at"]),
+        )
+
+    async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity:
+        entity_id = str(uuid.uuid4())
+        created = _now()
+        mapping: dict[str, str] = {
+            "name": data.name,
+            "description": data.description,
+            "created_at": created.isoformat(),
+        }
+        await self._r.hset(self._key(entity_id), mapping=mapping)  # type: ignore[arg-type]
+        await self._r.zadd(self._INDEX, {entity_id: created.timestamp()})
+        return Entity(id=entity_id, created_at=created, **data.model_dump())
+
+    async def get(self, entity_id: str) -> Entity | None:
+        h = await self._r.hgetall(self._key(entity_id))
+        return self._to_entity(entity_id, h) if h else None
+
+    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]:
+        ids = await self._r.zrange(self._INDEX, offset, offset + limit - 1)
+        out: list[Entity] = []
+        for raw_id in ids:
+            row = await self.get(str(raw_id))
+            if row is not None:
+                out.append(row)
+        return out
+
+    async def update(self, entity_id: str, data: {{ crud_entity | capitalize }}Update) -> Entity | None:
+        if not await self.exists(entity_id):
+            return None
+        patch: dict[str, str] = {k: str(v) for k, v in data.model_dump(exclude_none=True).items()}
+        if patch:
+            await self._r.hset(self._key(entity_id), mapping=patch)  # type: ignore[arg-type]
+        return await self.get(entity_id)
+
+    async def delete(self, entity_id: str) -> bool:
+        removed = await self._r.delete(self._key(entity_id))
+        await self._r.zrem(self._INDEX, entity_id)
+        return removed == 1
+
+    async def count(self) -> int:
+        return int(await self._r.zcard(self._INDEX))
+
+    async def exists(self, entity_id: str) -> bool:
+        return bool(await self._r.exists(self._key(entity_id)))
+
+
+def get_repository() -> {{ crud_entity | capitalize }}Repository:
+    return Redis{{ crud_entity | capitalize }}Repository()
+{% endif %}

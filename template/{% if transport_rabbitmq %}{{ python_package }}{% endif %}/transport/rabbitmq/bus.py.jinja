@@ -33,9 +33,7 @@ async def connect() -> AbstractRobustConnection:
     return await aio_pika.connect_robust(get_settings().transport_rabbitmq_url)
 
 
-async def publish(
-    connection: AbstractRobustConnection, routing_key: str, body: bytes
-) -> None:
+async def publish(connection: AbstractRobustConnection, routing_key: str, body: bytes) -> None:
     """Publish ``body`` to the shared topic exchange under ``routing_key``."""
 
     settings = get_settings()
