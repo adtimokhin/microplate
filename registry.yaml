@@ -437,7 +437,7 @@ options:
     type: str
     choices: { "Single service": single, "Monorepo, multiple services": monorepo, "Separate repo per service": multi_repo }
     default: single
-    build_status: planned
+    build_status: implemented
     milestone: 6
     notes: "D-005."
 
@@ -448,7 +448,7 @@ options:
     type: yaml
     default: ["api"]
     when: "topology != 'single'"
-    build_status: planned
+    build_status: implemented
     milestone: 6
     notes: "Explicit. Generator never invents names."
 
@@ -465,7 +465,7 @@ options:
       - "template/{% if transport_grpc %}{{ python_package }}{% endif %}/transport/grpc"
     requires:
       - { expr: "topology != 'single'", message: "Inter-service transport only applies to multi-service topology." }
-    build_status: planned
+    build_status: implemented
     milestone: 6
     notes: "D-020: split from the former `transport` multiselect. Pulls the api_grpc overlay's server/stub wiring for service-to-service calls."
 
@@ -482,7 +482,7 @@ options:
       - "template/{% if transport_rabbitmq %}{{ python_package }}{% endif %}/transport/rabbitmq"
     requires:
       - { expr: "topology != 'single'", message: "Inter-service transport only applies to multi-service topology." }
-    build_status: planned
+    build_status: implemented
     milestone: 6
     notes: >-
       D-020: split from the former `transport` multiselect. Pulls the
@@ -500,7 +500,7 @@ options:
     type: json
     default: {}
     when: "topology != 'single'"
-    build_status: planned
+    build_status: implemented
     milestone: 6
     notes: "Each submap is validated against this same registry. Shape owned by the topology overlay docs."
 
@@ -781,7 +781,7 @@ options:
     when: "topology != 'single'"
     requires:
       - { expr: "topology != 'single' and transport_grpc", message: "Contract tests need multi-service topology and gRPC transport (V-11)." }
-    build_status: planned
+    build_status: implemented
     milestone: 6
 
   llm_response_mode:
