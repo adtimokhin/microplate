@@ -356,7 +356,7 @@ _Phase 3 done. Next: Phase 4 (LangGraph). Lead building directly per D-038._
 
 ## Phase 4: LangGraph overlay + full combinatorial harness
 
-_not started_
+- **Lead** (2026-09-09): **PHASE 4 COMPLETE + COMMITTED** (commit `073c178`). `langgraph` + `langgraph_checkpoint` built directly (D-006 minimal): one StateGraph (`prepare -> respond`, state `{messages, turn}`), compiled with the store-specific checkpointer, behind `POST /langgraph/run`. Postgres checkpoint = `AsyncPostgresSaver`/psycopg3; Redis = `AsyncRedisSaver` + compose image auto-upgraded to `redis/redis-stack:7.4.0-v8` (IR-1, verified). Offline tests via `InMemorySaver` swap. Verified: postgres variant 8 pytest pass, redis variant 8 pass. 30 keys implemented. `copier.yml` regen + `--check` in sync. Full combinatorial harness = Phase 6 (D-038).
 
 ## Phase 5: Non-interactive mode + update path + final docs
 
