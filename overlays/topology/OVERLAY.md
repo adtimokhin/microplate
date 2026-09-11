@@ -157,3 +157,14 @@ docs/services-config-schema.md       submap schema (integrated by RegistryArchit
   but different leading comments; converging them on one source is a cleanup.
 - Live multi-service boots test (`docker compose up --wait` + inter-service
   call): see the TopologyEngineer report for the run result.
+
+## Phase 7 addendum: harness wiring
+
+`harness/run.py` now orchestrates `topology != single` combinations for real
+(`msvc_gen.topology.run_multi_service_new`, per-service + root-layer checks)
+instead of rendering a single degenerate tree, and `tests_contract` runs real
+`buf lint` (skip-safe) + the descriptor-set fallback against the rendered root
+`proto/`. Details: `harness/README.md` "`topology != single` orchestration"
+and "`tests_contract` real wiring". `docs/grpc-contract-tests.md` records what
+is and is not wired (no synthetic-prior-revision `buf breaking` yet - no
+tagged prior revision exists to diff against).

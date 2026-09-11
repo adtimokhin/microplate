@@ -147,19 +147,139 @@ greedy is enough for the skeleton and stays trivially deterministic.
 - Skip-safe: if `copier` is missing or the template has no `copier.yml`, the run
   prints a notice and exits 0 unless `--strict`.
 
-## Known gaps (Phase 2+)
+## `topology != single` orchestration (Phase 7 task 1)
+
+A `monorepo` / `multi_repo` combination no longer renders as one degenerate
+Copier tree. `run_combination` detects `canon["topology"] != "single"` and
+switches to `render_topology()`, which calls
+`msvc_gen.topology.run_multi_service_new()` in-process - the exact function
+`msvc-gen new` uses: N per-service Copier renders in `service_names` order
+into `services/<svc>/` (`monorepo`) or `<svc>/` (`multi_repo`), then the root
+wiring layer (root `docker-compose.yml`, `README.md`, CI workflow, and - when
+`transport_grpc` is on or a service ships `api_grpc` - the shared `proto/` +
+`buf.yaml`). Both renders in the double-render determinism check go through
+this same path, so the comparison covers every service directory and the root
+layer, not just a single tree.
+
+Everything downstream is per-project:
+
+- **Per service**: `uv lock` / `uv sync` / `uv run pytest` / the boots-tests
+  guard run once per `services/<svc>/` (or `<svc>/`), using **that service's
+  own effective overlay selection** - registry defaults, the shared top-level
+  keys (`license`/`ci`/`iac`/`docker`), then `services_config[svc]` (mirrors
+  `msvc_gen.topology.effective_answers`). Step names are suffixed `[svc]`
+  (`uv_lock[api]`, `pytest[worker]`, ...) so a multi-service record's steps
+  stay attributable. The record also carries `per_service_overlays`.
+- **Root layer**: `docker compose config` (`root_compose_config`), then
+  `boot_under_compose()` against the SAME root `docker-compose.yml` - it
+  already only starts services without a `build:` section, so this reuses the
+  existing function unchanged and boots the union of every selected service's
+  datastores/brokers plus the shared transport broker for real.
+- **`tests_contract`**: `contract_check()`, see below.
+
+`services_config` is a free-form `json` key that `combinations.py` pins to
+`{}` for every generated combo (it is not modeled as an axis), so a
+`transport_grpc=true` combo can reach render time with no service carrying
+`api_grpc` and be rejected by V-18
+(`docs/services-config-schema.md` §5 / `scripts/validate_registry.py`).
+`_fixup_services_config_for_v18()` mirrors what a real user is required to do:
+if `transport_grpc` is on and no submap already sets `api_grpc`, it turns
+`api_grpc` on for the first service, and the record's `per_service_overlays`
+reflects that so the report stays honest about what actually rendered. It
+never touches `combinations.py`'s axis model.
+
+For real multi-service coverage (more than the harness's own pinned/degenerate
+1-service topology combos), run the dedicated fixture:
+
+```
+uv run python harness/run.py --answers ci/answers/monorepo-2svc.yml --report-dir .harness-out/topology-2svc
+```
+
+Two services (`api`, `worker`), both transports on, `tests_contract: true` -
+exercises every part of the orchestration: per-service overlay divergence
+(`api` gets postgres + gRPC + tool scaffold, `worker` gets redis + rabbitmq),
+the root compose union (postgres + redis + rabbitmq all boot together), and
+the contract check.
+
+## `tests_contract` real wiring (Phase 7 task 3)
+
+`contract_check()` (called only for `topology != single` combos with
+`tests_contract: true`) runs the two mechanisms from
+`docs/grpc-contract-tests.md` for real against the rendered root `proto/`
+tree, not just checking the files exist:
+
+- **`buf lint`**, for real, when the `buf` binary is on PATH. Skip-safe
+  otherwise (`buf` is not installed in every environment, including the one
+  this was verified in - the step records `buf lint: skip (buf not on PATH)`
+  rather than failing).
+- **The no-toolchain descriptor-set fallback**, always run for real:
+  `proto/gen_descriptor_set.py` is executed via `uv run` from whichever
+  service directory ships `api_grpc` (the root layer has no Python project of
+  its own - `grpcio-tools` lives in that overlay's dev-deps). Asserts
+  `proto/descriptor.pb` is non-empty and that regenerating it twice back to
+  back is byte-identical - the determinism half of D-009's "regenerate, then
+  `git diff --exit-code`" contract; there is no prior git history to diff
+  against in a fresh scratch render, so this checks the generator is a pure
+  function of the `proto/` tree, which is the property the real CI guard
+  depends on.
+
+Verified against `ci/answers/monorepo-2svc.yml` (`transport_grpc` +
+`tests_contract`, both services): `descriptor-set fallback: pass (326 bytes,
+regen byte-stable)`.
+
+## `tests_integration` container-mode pytest (Phase 7 task 2, D-031)
+
+Every `tests_integration: true` combination previously ERRORed:
+`testcontainers` fixtures (`postgres_container`, `redis_container`, ...) open
+containers directly through the Docker Python SDK, and on this Docker
+Desktop-for-Mac setup `testcontainers`' `ryuk` reaper sidecar fails to start
+with `error while creating mount source path
+'/host_mnt/.../docker.sock': operation not supported` - reproduced directly: a
+`db_postgres` + `tests_integration` combo ERRORs in `PostgresContainer.start()`
+with exactly that message, and goes 10/10 green with `ryuk` disabled. `run.py`
+now runs the pytest step for any `tests_integration: true` project (single or
+per-service, topology or not) with `TESTCONTAINERS_RYUK_DISABLED=true`
+(`TESTS_INTEGRATION_ENV`) set on the subprocess environment.
+
+Ryuk is only the orphan-container reaper for processes that die abnormally;
+every fixture already stops its own container via its `with
+...Container(...)` context manager on normal exit (which a harness pytest run
+always reaches), so disabling it does not weaken cleanup here. If a future
+environment does not exhibit this specific Docker Desktop quirk, the env var
+is harmless - ryuk simply isn't needed as a backstop for a process that always
+exits cleanly.
+
+With this fix, the Phase 6 `tests_integration=false` pin is no longer required
+for the axis to pass; see "Phase 7 gate" below for the unpinned run.
+
+## Known gaps
 
 - The compose boot proves the assembled compose file is runnable. Running an
   overlay's boots test against the compose-provided services (rather than the
   testcontainers path pytest already uses) is a possible later addition; it needs
   the overlay settings env-var-to-published-port contract.
-- gRPC contract tests: spec only, see `docs/grpc-contract-tests.md`.
-- The temporary hand-written `copier.yml` only carries the base plus
-  `otel_tracing` questions, so overlay answer keys are currently ignored by
-  Copier. Once `scripts/gen_copier_yml.py` emits the full `copier.yml`, the
-  pairwise and full runs exercise real overlay selection.
+- `buf` itself is not installed in the environment this was verified in, so
+  `contract_check()`'s `buf lint` step has not been exercised for real here -
+  only the no-toolchain descriptor-set fallback has. Both paths are wired;
+  install `buf` to exercise the first for real.
+- `rabbitmq:4.1-management`'s healthcheck is flaky under `boot_under_compose`
+  on this Docker Desktop setup independent of any overlay or topology code
+  (observed both via the dedicated `rabbitmq`-only isolation test and the
+  `monorepo-2svc` combo: one run times out waiting for `healthy`, the very
+  next run - no code change - is clean). Not a defect in this repo; a retry
+  clears it. Investigate the image / healthcheck timing if it recurs often in
+  CI (owner: Data Layer / Messaging, image pin D-023-adjacent).
 - `uv` in this environment is older than the registry pin (`0.12.10`); the
   skeleton works with it but CI pins the newer one.
+- **A live `isolation: "worktree"` agent worktree under `.claude/worktrees/`
+  breaks every dirty-worktree (`vcs_ref=None`) Copier render** - `git worktree
+  list` shows it `locked`; Copier's dirty-tree clone runs `git submodule
+  update --init --recursive --force` and the worktree's nested `.git` gitlink
+  has no `.gitmodules` entry, so that step fails for every combination, not
+  just topology ones. Not a code defect (see "Phase 7 gate" below for the full
+  diagnosis and reproduction). Check `git worktree list` before trusting a red
+  gate or an empty-looking `services/<svc>/` from `msvc-gen new`; pin
+  `--vcs-ref` to sidestep it if a worktree must stay live.
 
 ## Phase 6 gate (combinatorial verification)
 
@@ -189,3 +309,54 @@ For the deferred-axis picture, a full unpinned `run.py --mode pairwise` is still
 useful: it additionally folds in the `singletons` set and every
 `tests_integration=true` pair, so it shows exactly which combinations are blocked
 on Phase 7.
+
+## Phase 7 gate (topology orchestration + container-mode pytest + buf wiring)
+
+Phase 7 task 2 (`TESTCONTAINERS_RYUK_DISABLED`, above) removes the reason the
+Phase 6 gate pinned `tests_integration=false`. The authoritative command is now
+the SAME pairwise run with the axis unpinned:
+
+```
+uv run python harness/run.py --mode pairwise --report-dir .harness-out/phase7-gate
+```
+
+(equivalent to `combinations.py pairwise --out <dir>` piped into `run.py
+--manifest <dir>`, folding in the `singletons` set as `--mode pairwise` always
+does.) Same quiescent-tree and Docker-up preconditions as the Phase 6 gate.
+
+First result (2026-09-11, this environment, tree not fully quiescent - see
+below): 51 combinations (pairwise + folded singletons), 38 pass, 13 fail, 0
+skip. Every `tests_integration=true` combination in the set passed (previously
+deferred by the Phase 6 pin) - task 2 verified in the standing gate, not just
+in isolation. The set includes `monorepo` / `multi_repo` combinations rendered
+through the real orchestration path (task 1) - though, per the note above, the
+harness's own axis model always pins `service_names` to `["api"]`, so those
+particular combos exercise the orchestration code path with one service. The
+dedicated `monorepo-2svc` / `multi_repo-2svc` fixture runs (two services,
+divergent overlays, both transports, `tests_contract`) are the multi-service
+coverage; both fully green - see above.
+
+All 13 failures in that run, and a full 29/29 failure on an immediate
+re-run, traced to **one external cause unrelated to this repo's code**: a
+teammate's `isolation: "worktree"` agent left a *locked* git worktree at
+`.claude/worktrees/agent-<id>/` (visible via `git worktree list`) nested
+inside this checkout while the gate was rendering. Copier's dirty-worktree
+clone (`vcs_ref=None`, "template-development mode") runs `git submodule
+update --checkout --init --recursive --force` over the snapshotted tree; the
+worktree's nested `.git` gitlink file has no matching `.gitmodules` entry, so
+that step fails with `fatal: No url found for submodule path
+'.claude/worktrees/...'`. This affects **every** dirty-worktree render, not
+just topology combos - reproduced on a plain `streaming_sse`-only combo with
+the identical traceback. It does not affect a `--vcs-ref`-pinned render
+(Copier fetches a specific commit instead of cloning the live working
+directory), which is why a direct `msvc-gen new ... --vcs-ref HEAD`
+reproduction with the same `monorepo-2svc` answers rendered both services in
+full (74 + 55 files - `main.py`, `config/`, `grpc/`, `transport/`, `tests/`,
+`pyproject.toml`, ...), not just `.claude/`. Do not re-run the gate (or trust
+a dirty-tree `msvc-gen new`) while a worktree is live under `.claude/`; wait
+for it to clear or pin `--vcs-ref`.
+
+One `compose_boot` re-run was also needed earlier, unrelated to the above:
+`rabbitmq` failed to reach `healthy` within its wait window once (see Known
+gaps) and passed clean on retry with no code change - a pre-existing
+environment flake.

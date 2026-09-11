@@ -38,6 +38,7 @@ import argparse
 import dataclasses
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -52,9 +53,14 @@ import yaml
 HARNESS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = HARNESS_DIR.parent
 sys.path.insert(0, str(HARNESS_DIR))
+sys.path.insert(0, str(REPO_ROOT))
 
 import combinations as combos_mod  # noqa: E402
 from registry_model import answers_for, load_registry  # noqa: E402
+
+# Phase 7 task 1: real orchestrated multi-service rendering (D-036), imported
+# lazily by `_topology_mod()` so a checkout without `msvc_gen/` still runs the
+# `single`-only parts of the harness.
 
 IGNORE_TREE_PARTS = {".git"}
 # `.copier-answers.yml` records `_commit` and `_src_path`. In pinned `--vcs-ref`
@@ -76,6 +82,16 @@ class StepResult:
     status: str  # "pass" | "fail" | "skip"
     seconds: float = 0.0
     detail: str = ""
+
+
+def _topology_mod() -> Any:
+    """Import `msvc_gen.topology` on first use. Raises ImportError with a clear
+    message if the generator package is not importable (e.g. a stripped-down
+    checkout) - callers treat that as a `fail`, not a silent `skip`, because a
+    `topology != single` combo genuinely cannot render without it."""
+    import msvc_gen.topology as t  # noqa: PLC0415
+
+    return t
 
 
 class CopierGenerator:
@@ -164,16 +180,39 @@ def _tree_diff(a: Path, b: Path) -> list[str]:
     return problems
 
 
-def _run(cmd: list[str], cwd: Path, name: str, timeout: int = 900) -> StepResult:
+def _run(
+    cmd: list[str],
+    cwd: Path,
+    name: str,
+    timeout: int = 900,
+    env: dict[str, str] | None = None,
+) -> StepResult:
     t0 = time.monotonic()
+    run_env = {**os.environ, **env} if env else None
     try:
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=run_env
+        )
     except subprocess.TimeoutExpired:
         return StepResult(name, "fail", time.monotonic() - t0, f"timeout after {timeout}s")
     dt = time.monotonic() - t0
     if proc.returncode != 0:
         return StepResult(name, "fail", dt, _tail(proc.stderr or proc.stdout))
     return StepResult(name, "pass", dt)
+
+
+# `tests_integration=true` combos use real testcontainers fixtures (D-031, Phase
+# 7 task 2). On this Docker Desktop setup testcontainers' `ryuk` reaper sidecar
+# fails to start (`error while creating mount source path
+# '/host_mnt/.../docker.sock': operation not supported` - a known
+# testcontainers-python / Docker Desktop-for-Mac bind-mount quirk, reproduced
+# directly: a `db_postgres` + `tests_integration` combo ERRORs in
+# `PostgresContainer.start()` with this exact message). Ryuk is only the
+# orphan-container reaper for abnormal termination; each fixture already stops
+# its own container via its `with ...Container(...)` context manager on normal
+# exit, so disabling ryuk does not weaken cleanup for a harness run that always
+# lets pytest finish. Verified: the same combo goes 10/10 green with this set.
+TESTS_INTEGRATION_ENV = {"TESTCONTAINERS_RYUK_DISABLED": "true"}
 
 
 def _docker_available() -> bool:
@@ -434,6 +473,207 @@ def boots_tests_guard(project_dir: Path, reg: Any, selected: list[str]) -> StepR
     )
 
 
+# ---------------------------------------------------------------------------
+# topology (`monorepo` / `multi_repo`) orchestration - Phase 7 task 1
+
+
+def _service_canon(reg: Any, answers: dict[str, Any], svc: str) -> dict[str, Any]:
+    """The canonical single-service assignment for one entry in `service_names`:
+    registry defaults <- shared top-level keys a `single` render also needs <-
+    `services_config[svc]` - mirrors `msvc_gen.topology.effective_answers` /
+    docs/services-config-schema.md §3, so `reg.selected_overlays` on the result
+    matches what actually rendered into that service's directory."""
+    shared_keys = ("license", "ci", "iac", "docker")
+    submap = (answers.get("services_config") or {}).get(svc) or {}
+    assignment = {
+        **reg.base_namespace(),
+        **{k: answers[k] for k in shared_keys if k in answers},
+        **submap,
+        "service_name": svc,
+    }
+    return reg.canonicalize(assignment)
+
+
+def _fixup_services_config_for_v18(
+    answers: dict[str, Any], service_names: list[str]
+) -> dict[str, dict[str, Any]]:
+    """`services_config` is a free-form `json` key that `combinations.py` pins to
+    `{}` for every generated combo (registry_model.py `PINNED_FREEFORM`) - it is
+    not modeled as an axis, so the harness can produce a structurally-valid-looking
+    combination that is nonetheless rejected at render time by V-18 (`transport_grpc`
+    needs at least one service with `api_grpc`; docs/services-config-schema.md §5).
+
+    Mirrors what a real user is required to do: when `transport_grpc` is on and no
+    submap already sets `api_grpc`, turn it on for the first service. This is a
+    harness-side normalization only (never mutates `combinations.py`'s axis
+    model); the record's `per_service_overlays` reflects the actual post-fixup
+    selection so the report stays honest about what rendered.
+    """
+    services_config = {k: dict(v) for k, v in (answers.get("services_config") or {}).items()}
+    if not answers.get("transport_grpc") or not service_names:
+        return services_config
+    if any(services_config.get(s, {}).get("api_grpc") for s in service_names):
+        return services_config
+    first = service_names[0]
+    services_config[first] = {**services_config.get(first, {}), "api_grpc": True}
+    return services_config
+
+
+def render_topology(dest: Path, answers: dict[str, Any], vcs_ref: str | None) -> StepResult:
+    """Render a `topology != 'single'` answers file the same way `msvc-gen new`
+    does: `msvc_gen.topology.run_multi_service_new` in-process (N per-service
+    Copier renders in `service_names` order + the root wiring layer), not a
+    single degenerate Copier tree."""
+    name = "render"
+    t0 = time.monotonic()
+    try:
+        topo = _topology_mod()
+        topo.run_multi_service_new(
+            template_src=str(REPO_ROOT),
+            output=dest,
+            data=answers,
+            vcs_ref=vcs_ref,
+            skip_tasks=True,
+            force=True,
+            dry_run=False,
+            quiet=True,
+        )
+    except SystemExit as exc:  # TopologyError is a SystemExit subclass
+        return StepResult(name, "fail", time.monotonic() - t0, str(exc) or repr(exc))
+    except Exception as exc:  # noqa: BLE001 - report, don't crash the whole gate
+        return StepResult(name, "fail", time.monotonic() - t0, f"{type(exc).__name__}: {exc}")
+    return StepResult(name, "pass", time.monotonic() - t0)
+
+
+def _run_project_checks(
+    project_dir: Path,
+    reg: Any,
+    selected: list[str],
+    do_lock: bool,
+    tests_integration: bool,
+    label: str = "",
+) -> list[StepResult]:
+    """`uv lock` + `uv sync` + `uv run pytest` + the boots-tests guard for ONE
+    project directory (a `single` render, or one `services/<svc>/` of a topology
+    render). `label` namespaces the step names so a multi-service record's steps
+    stay attributable to their service."""
+    suffix = f"[{label}]" if label else ""
+    steps: list[StepResult] = []
+    if do_lock:
+        steps.append(_run(["uv", "lock"], project_dir, f"uv_lock{suffix}", timeout=600))
+    if not steps or steps[-1].status == "pass":
+        steps.append(_run(["uv", "sync"], project_dir, f"uv_sync{suffix}", timeout=600))
+    if steps[-1].status == "pass":
+        # Phase 7 task 2: real containers for `tests_integration` (see
+        # TESTS_INTEGRATION_ENV above the `boot_under_compose` skip-safety note).
+        pytest_env = TESTS_INTEGRATION_ENV if tests_integration else None
+        steps.append(
+            _run(
+                ["uv", "run", "pytest", "-q"],
+                project_dir,
+                f"pytest{suffix}",
+                timeout=900,
+                env=pytest_env,
+            )
+        )
+    if steps[-1].status == "pass" and selected:
+        guard = boots_tests_guard(project_dir, reg, selected)
+        steps.append(dataclasses.replace(guard, name=f"boots_tests{suffix}"))
+    return steps
+
+
+def contract_check(
+    root_dir: Path, topo: Any, topology: str, service_names: list[str], grpc_services: list[str]
+) -> StepResult:
+    """Real wiring for `tests_contract` (Phase 7 task 3;
+    docs/grpc-contract-tests.md), run against the rendered root `proto/` tree:
+
+    - `buf lint`, for real, when the `buf` binary is on PATH (skip-safe
+      otherwise - not installed in every environment).
+    - the no-toolchain descriptor-set fallback (`proto/gen_descriptor_set.py`),
+      always run for real: executed with `uv run` from a service directory that
+      carries `grpcio-tools` (the `api_grpc` overlay's dev-dep - the root layer
+      itself has no Python project of its own), asserting a non-empty
+      `descriptor.pb` and that regenerating it twice is byte-identical (the
+      determinism half of D-009's "regenerate, then `git diff --exit-code`"
+      contract - there is no prior git history to diff against in a fresh
+      render, so this checks the generator is a pure function of the same
+      `proto/` tree, which is the property the CI guard actually depends on).
+    """
+    name = "contract"
+    proto_dir = root_dir / "proto"
+    if not proto_dir.is_dir() or not any(proto_dir.rglob("*.proto")):
+        return StepResult(name, "skip", 0.0, "no proto/ tree rendered")
+
+    t0 = time.monotonic()
+    detail: list[str] = []
+
+    if shutil.which("buf"):
+        proc = subprocess.run(
+            ["buf", "lint"], cwd=root_dir, capture_output=True, text=True, timeout=60
+        )
+        if proc.returncode != 0:
+            msg = "buf lint:\n" + _tail(proc.stderr or proc.stdout)
+            return StepResult(name, "fail", time.monotonic() - t0, msg)
+        detail.append("buf lint: pass")
+    else:
+        detail.append("buf lint: skip (buf not on PATH)")
+
+    gen_script = proto_dir / "gen_descriptor_set.py"
+    if not gen_script.is_file():
+        detail.append("descriptor-set fallback: skip (proto/gen_descriptor_set.py not rendered)")
+        return StepResult(name, "pass", time.monotonic() - t0, "; ".join(detail))
+
+    svc_dir = next(
+        (
+            topo.service_dest(root_dir, topology, s)
+            for s in grpc_services
+            if s in service_names
+        ),
+        None,
+    )
+    if svc_dir is None or not (svc_dir / "pyproject.toml").is_file():
+        detail.append("descriptor-set fallback: skip (no service ships grpcio-tools)")
+        return StepResult(name, "pass", time.monotonic() - t0, "; ".join(detail))
+
+    descriptor = proto_dir / "descriptor.pb"
+    run1 = subprocess.run(
+        ["uv", "run", "python", str(gen_script)],
+        cwd=svc_dir,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if run1.returncode != 0:
+        return StepResult(
+            name,
+            "fail",
+            time.monotonic() - t0,
+            "gen_descriptor_set.py:\n" + _tail(run1.stderr or run1.stdout),
+        )
+    if not descriptor.is_file() or descriptor.stat().st_size == 0:
+        return StepResult(name, "fail", time.monotonic() - t0, "descriptor.pb missing/empty")
+    before = descriptor.read_bytes()
+
+    run2 = subprocess.run(
+        ["uv", "run", "python", str(gen_script)],
+        cwd=svc_dir,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    after = descriptor.read_bytes() if descriptor.is_file() else b""
+    if run2.returncode != 0 or before != after:
+        return StepResult(
+            name,
+            "fail",
+            time.monotonic() - t0,
+            "descriptor-set snapshot not byte-stable across regeneration",
+        )
+    detail.append(f"descriptor-set fallback: pass ({len(before)} bytes, regen byte-stable)")
+    return StepResult(name, "pass", time.monotonic() - t0, "; ".join(detail))
+
+
 def run_combination(
     reg: Any,
     answers_path: Path,
@@ -448,6 +688,7 @@ def run_combination(
     canon = reg.canonicalize({**reg.base_namespace(), **answers})
     selected = reg.selected_overlays(canon)
     digest = hashlib.sha256(answers_path.read_bytes()).hexdigest()[:12]
+    is_topology = str(canon.get("topology", "single")) != "single"
 
     record: dict[str, Any] = {
         "hash": digest,
@@ -457,15 +698,41 @@ def run_combination(
         "status": "pass",
     }
 
+    # Phase 7 task 1: topology != single actually orchestrates N per-service
+    # renders + a root layer (msvc_gen.topology, D-036), not one degenerate
+    # Copier tree. Compute each service's own selected-overlay set (needed for
+    # the unmet-overlay gate and the per-service boots-tests guard) and apply
+    # the V-18 harness-side fixup (see `_fixup_services_config_for_v18`).
+    service_names: list[str] = []
+    services_config: dict[str, dict[str, Any]] = {}
+    per_service_selected: dict[str, list[str]] = {}
+    all_selected = set(selected)
+    if is_topology:
+        topo = _topology_mod()
+        try:
+            service_names = topo.normalize_service_names(answers.get("service_names"))
+        except SystemExit as exc:
+            record["status"] = "fail"
+            record["steps"] = [dataclasses.asdict(StepResult("render", "fail", 0.0, str(exc)))]
+            return record
+        services_config = _fixup_services_config_for_v18(answers, service_names)
+        answers = {**answers, "services_config": services_config}
+        for svc in service_names:
+            svc_canon = _service_canon(reg, answers, svc)
+            per_service_selected[svc] = reg.selected_overlays(svc_canon)
+            all_selected.update(per_service_selected[svc])
+        record["per_service_overlays"] = per_service_selected
+
     # `--treat-implemented` forces named overlays through the full pipeline before
     # their registry `build_status` is flipped, so an overlay can be gated on a
     # green harness run.
     impl = implemented_overlays(reg) | (treat_implemented or set())
-    unmet = [o for o in selected if o not in impl]
+    unmet = [o for o in all_selected if o not in impl]
     if unmet:
         record["status"] = "skip"
+        by_milestone = sorted(milestone_for_overlays(reg, sorted(unmet)).items())
         record["skip_reason"] = "overlay(s) not yet implemented: " + ", ".join(
-            f"{o} (milestone {m})" for o, m in sorted(milestone_for_overlays(reg, unmet).items())
+            f"{o} (milestone {m})" for o, m in by_milestone
         )
         return record
 
@@ -479,10 +746,16 @@ def run_combination(
     with tempfile.TemporaryDirectory(prefix=f"harness-{digest}-") as tmp:
         d1, d2 = Path(tmp) / "r1", Path(tmp) / "r2"
 
-        r1 = generator.render(answers_path, d1)
+        if is_topology:
+            r1 = render_topology(d1, answers, generator.vcs_ref)
+        else:
+            r1 = generator.render(answers_path, d1)
         steps.append(r1)
         if r1.status == "pass":
-            r2 = generator.render(answers_path, d2)
+            if is_topology:
+                r2 = render_topology(d2, answers, generator.vcs_ref)
+            else:
+                r2 = generator.render(answers_path, d2)
             steps.append(dataclasses.replace(r2, name="render_2"))
             if r2.status == "pass":
                 problems = _tree_diff(d1, d2)
@@ -496,39 +769,81 @@ def run_combination(
                 )
 
         if all(s.status == "pass" for s in steps):
-            if do_lock:
-                steps.append(_run(["uv", "lock"], d1, "uv_lock", timeout=600))
-            if steps[-1].status == "pass" or not do_lock:
-                steps.append(_run(["uv", "sync"], d1, "uv_sync", timeout=600))
-            if steps[-1].status == "pass":
-                steps.append(_run(["uv", "run", "pytest", "-q"], d1, "pytest", timeout=900))
-
-            # Guard: each selected overlay's boots test must be present AND
-            # collected by pytest (not silently excluded from the rendered tree).
-            if steps[-1].status == "pass" and selected:
-                steps.append(boots_tests_guard(d1, reg, selected))
-
-            if do_docker and bool(canon.get("docker")) and all(s.status == "pass" for s in steps):
-                env_example = d1 / ".env.example"
-                if env_example.is_file() and not (d1 / ".env").exists():
-                    (d1 / ".env").write_text(env_example.read_text())
-                if shutil.which("docker"):
-                    steps.append(
-                        _run(
-                            ["docker", "compose", "config", "-q"], d1, "compose_config", timeout=120
+            if is_topology:
+                topo = _topology_mod()
+                topology = str(canon.get("topology"))
+                for svc in service_names:
+                    dest = topo.service_dest(d1, topology, svc)
+                    steps.extend(
+                        _run_project_checks(
+                            dest,
+                            reg,
+                            per_service_selected.get(svc, []),
+                            do_lock,
+                            bool(_service_canon(reg, answers, svc).get("tests_integration")),
+                            label=svc,
                         )
                     )
-                else:
-                    steps.append(StepResult("compose_config", "skip", 0.0, "docker not on PATH"))
 
-                # Phase 2 gate: datastore / broker overlays must actually boot
-                # under `docker compose up`, not just validate.
+                if do_docker and all(s.status == "pass" for s in steps):
+                    if shutil.which("docker"):
+                        steps.append(
+                            _run(
+                                ["docker", "compose", "config", "-q"],
+                                d1,
+                                "root_compose_config",
+                                timeout=120,
+                            )
+                        )
+                    else:
+                        steps.append(
+                            StepResult("root_compose_config", "skip", 0.0, "docker not on PATH")
+                        )
+                    if do_compose_boot and steps[-1].status == "pass":
+                        steps.append(boot_under_compose(d1, timeout=compose_timeout))
+
+                if all(s.status == "pass" for s in steps) and canon.get("tests_contract"):
+                    grpc_services = [
+                        s for s in service_names if "api_grpc" in per_service_selected.get(s, [])
+                    ]
+                    steps.append(contract_check(d1, topo, topology, service_names, grpc_services))
+            else:
+                steps.extend(
+                    _run_project_checks(
+                        d1, reg, selected, do_lock, bool(canon.get("tests_integration"))
+                    )
+                )
+
                 if (
-                    do_compose_boot
-                    and steps[-1].status == "pass"
-                    and _selected_have_compose_service(reg, selected)
+                    do_docker
+                    and bool(canon.get("docker"))
+                    and all(s.status == "pass" for s in steps)
                 ):
-                    steps.append(boot_under_compose(d1, timeout=compose_timeout))
+                    env_example = d1 / ".env.example"
+                    if env_example.is_file() and not (d1 / ".env").exists():
+                        (d1 / ".env").write_text(env_example.read_text())
+                    if shutil.which("docker"):
+                        steps.append(
+                            _run(
+                                ["docker", "compose", "config", "-q"],
+                                d1,
+                                "compose_config",
+                                timeout=120,
+                            )
+                        )
+                    else:
+                        steps.append(
+                            StepResult("compose_config", "skip", 0.0, "docker not on PATH")
+                        )
+
+                    # Phase 2 gate: datastore / broker overlays must actually boot
+                    # under `docker compose up`, not just validate.
+                    if (
+                        do_compose_boot
+                        and steps[-1].status == "pass"
+                        and _selected_have_compose_service(reg, selected)
+                    ):
+                        steps.append(boot_under_compose(d1, timeout=compose_timeout))
 
     record["steps"] = [dataclasses.asdict(s) for s in steps]
     if any(s.status == "fail" for s in steps):

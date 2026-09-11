@@ -91,13 +91,30 @@ need it; too heavy to be the default gRPC contract safeguard.
    README for teams that cannot add `buf`.
 3. Leave pact-python as a future opt-in overlay (`BACKLOG.md`), not v1.
 
-## Harness integration (Phase 3)
+## Harness integration (Phase 3 spec, wired Phase 7)
 
-- `harness/run.py` gains a `contract` step that runs when the combination has
-  `tests_contract == true`: it invokes the generated project's `buf` job locally
-  (`buf lint` + `buf breaking` against a synthetic prior revision) or the
-  descriptor-set diff, and records pass / fail per combination like every other
-  step.
-- The synthetic prior revision for `buf breaking` in the harness: render the same
-  answers file at the previous template tag, take its `proto/`, and diff forward.
-  This reuses the `copier update` machinery the DevOps engineer already has.
+`harness/run.py`'s `contract_check()` runs when a `topology != 'single'`
+combination has `tests_contract == true`, and records pass / fail / skip per
+combination like every other step:
+
+- `buf lint`, for real, when the `buf` binary is on PATH (skip-safe otherwise -
+  not every environment has it installed, including the one this was verified
+  in).
+- The no-toolchain descriptor-set fallback, always run for real:
+  `proto/gen_descriptor_set.py` is executed via `uv run` from a service
+  directory that ships `grpcio-tools` (the `api_grpc` overlay's dev-dep - the
+  root layer itself has no Python project), asserting a non-empty
+  `descriptor.pb` and that regenerating it twice back to back is byte-stable.
+
+What is **not** wired: `buf breaking` against a synthetic prior revision (the
+original Phase 3 spec below - render the same answers at the previous template
+tag, take its `proto/`, diff forward, reusing `copier update`). There is no
+tagged prior revision to render against in this repo yet, and no synthetic
+one was built for the harness. This is real breaking-change detection, not
+just "the tooling runs" - worth building once a tag exists to diff against
+(raised to the Lead for `BACKLOG.md`). Until then, the descriptor-set byte-stability check
+verifies the generator side of D-009's contract (same `proto/` tree ->
+byte-identical descriptor set), not backward compatibility across a change.
+
+See `harness/README.md` "`tests_contract` real wiring (Phase 7 task 3)" for the
+verified result against `ci/answers/monorepo-2svc.yml`.
