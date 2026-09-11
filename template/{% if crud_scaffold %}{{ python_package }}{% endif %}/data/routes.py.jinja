@@ -1,11 +1,16 @@
 """REST CRUD endpoints for ``{{ crud_entity }}`` at ``/{{ crud_entity }}s`` (backend: {{ crud_backend }}).
 
-- ``POST   /{{ crud_entity }}s``        create
-- ``GET    /{{ crud_entity }}s``        list (limit / offset)
-- ``GET    /{{ crud_entity }}s/count``  count
-- ``GET    /{{ crud_entity }}s/{id}``   get one
-- ``PATCH  /{{ crud_entity }}s/{id}``   partial update
-- ``DELETE /{{ crud_entity }}s/{id}``   delete
+- ``POST   /{{ crud_entity }}s``              create
+- ``POST   /{{ crud_entity }}s/bulk``         bulk create (body: a JSON array of create payloads)
+- ``POST   /{{ crud_entity }}s/bulk-delete``  bulk delete (body: ``{"ids": [...]}``, returns ``{"deleted": N}``)
+- ``GET    /{{ crud_entity }}s``              list (``limit`` / ``offset`` / ``name_contains``)
+- ``GET    /{{ crud_entity }}s/count``        count (add ``?name_contains=`` to match the list filter)
+- ``GET    /{{ crud_entity }}s/{id}``         get one
+- ``PATCH  /{{ crud_entity }}s/{id}``         partial update
+- ``DELETE /{{ crud_entity }}s/{id}``         delete{% if crud_soft_delete %} (soft: sets ``deleted_at``, the row is kept){% endif %}
+
+``GET /{{ crud_entity }}s`` returns ``{"items": [...], "total": N}``. ``total`` respects the
+``name_contains`` filter, not just the unfiltered count.
 """
 
 from __future__ import annotations
@@ -17,7 +22,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from {{ python_package }}.data import repository as _repo
 from {{ python_package }}.data.models import (
     {{ crud_entity | capitalize }},
+    {{ crud_entity | capitalize }}BulkDeleteRequest,
     {{ crud_entity | capitalize }}Create,
+    {{ crud_entity | capitalize }}ListResponse,
     {{ crud_entity | capitalize }}Update,
 )
 
@@ -36,18 +43,34 @@ async def create_{{ crud_entity }}(payload: {{ crud_entity | capitalize }}Create
     return await repo.create(payload)
 
 
+@router.post("/bulk", operation_id="{{ crud_entity }}_bulk_create", status_code=status.HTTP_201_CREATED)
+async def bulk_create_{{ crud_entity }}s(payload: list[{{ crud_entity | capitalize }}Create], repo: Repo) -> list[{{ crud_entity | capitalize }}]:
+    return await repo.bulk_create(payload)
+
+
+@router.post("/bulk-delete", operation_id="{{ crud_entity }}_bulk_delete")
+async def bulk_delete_{{ crud_entity }}s(payload: {{ crud_entity | capitalize }}BulkDeleteRequest, repo: Repo) -> dict[str, int]:
+    return {"deleted": await repo.bulk_delete(payload.ids)}
+
+
 @router.get("", operation_id="{{ crud_entity }}_list")
 async def list_{{ crud_entity }}s(
     repo: Repo,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> list[{{ crud_entity | capitalize }}]:
-    return await repo.list(limit=limit, offset=offset)
+    name_contains: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+) -> {{ crud_entity | capitalize }}ListResponse:
+    items = await repo.list(limit=limit, offset=offset, name_contains=name_contains)
+    total = await repo.count(name_contains=name_contains)
+    return {{ crud_entity | capitalize }}ListResponse(items=items, total=total)
 
 
 @router.get("/count", operation_id="{{ crud_entity }}_count")
-async def count_{{ crud_entity }}s(repo: Repo) -> dict[str, int]:
-    return {"count": await repo.count()}
+async def count_{{ crud_entity }}s(
+    repo: Repo,
+    name_contains: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+) -> dict[str, int]:
+    return {"count": await repo.count(name_contains=name_contains)}
 
 
 @router.get("/{entity_id}", operation_id="{{ crud_entity }}_get")

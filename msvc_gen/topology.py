@@ -122,6 +122,7 @@ PER_SERVICE_ALLOWED_KEYS = frozenset(
         "crud_scaffold",
         "crud_entity",
         "crud_backend",
+        "crud_soft_delete",
         "tests_unit",
         "tests_integration",
         "llm_response_mode",

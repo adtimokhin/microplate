@@ -1,15 +1,26 @@
 """Async repository for ``{{ crud_entity }}`` backed by {{ crud_backend }}.
 
-Interface (all async): ``create`` ``get`` ``list`` ``update`` ``delete``
-``count`` ``exists``. ``get_repository()`` is the FastAPI dependency; tests
-patch it to ``InMemory{{ crud_entity | capitalize }}Repository``.
-"""
+Interface (all async): ``create`` ``bulk_create`` ``get`` ``list`` ``update``
+``delete`` ``bulk_delete`` ``count`` ``exists``. ``get_repository()`` is the
+FastAPI dependency; tests patch it to ``InMemory{{ crud_entity | capitalize }}Repository``.
+
+``bulk_delete`` takes ``Sequence[str]``, not ``list[str]``: once a class defines
+a method literally named ``list``, mypy (checked: 2.3.1) misresolves every
+*later* bare ``list[...]`` annotation in that same class as a reference to the
+method rather than the builtin generic. ``bulk_create``'s ``list[...]`` is
+safe because it appears earlier in the class body, before the ``list`` method.
+{% if crud_soft_delete %}
+Soft delete is on: ``delete``/``bulk_delete`` set ``deleted_at`` instead of
+removing the row/doc/hash; ``get``/``list``/``count``/``exists``/``update``
+treat a soft-deleted entity as not found.
+{% endif %}"""
 
 from __future__ import annotations
 
 import uuid
-{% if crud_backend == 'redis' %}from collections.abc import Mapping
-{% endif %}from typing import {% if crud_backend == 'redis' %}Any, {% endif %}Protocol
+from collections.abc import {% if crud_backend == 'redis' %}Mapping, {% endif %}Sequence
+from datetime import datetime
+from typing import {% if crud_backend == 'redis' %}Any, {% endif %}Protocol
 
 {% if crud_backend == 'postgres' %}from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,11 +36,15 @@ Entity = {{ crud_entity | capitalize }}
 
 class {{ crud_entity | capitalize }}Repository(Protocol):
     async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity: ...
+    async def bulk_create(self, items: list[{{ crud_entity | capitalize }}Create]) -> list[Entity]: ...
     async def get(self, entity_id: str) -> Entity | None: ...
-    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]: ...
+    async def list(
+        self, *, limit: int = 50, offset: int = 0, name_contains: str | None = None
+    ) -> list[Entity]: ...
     async def update(self, entity_id: str, data: {{ crud_entity | capitalize }}Update) -> Entity | None: ...
     async def delete(self, entity_id: str) -> bool: ...
-    async def count(self) -> int: ...
+    async def bulk_delete(self, entity_ids: Sequence[str]) -> int: ...
+    async def count(self, *, name_contains: str | None = None) -> int: ...
     async def exists(self, entity_id: str) -> bool: ...
 
 
@@ -38,20 +53,34 @@ class InMemory{{ crud_entity | capitalize }}Repository:
 
     def __init__(self) -> None:
         self._rows: dict[str, Entity] = {}
+        self._deleted_at: dict[str, datetime] = {}
 
     async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity:
         row = Entity(id=str(uuid.uuid4()), created_at=_now(), **data.model_dump())
         self._rows[row.id] = row
         return row
 
+    async def bulk_create(self, items: list[{{ crud_entity | capitalize }}Create]) -> list[Entity]:
+        return [await self.create(item) for item in items]
+
     async def get(self, entity_id: str) -> Entity | None:
+        if entity_id in self._deleted_at:
+            return None
         return self._rows.get(entity_id)
 
-    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]:
-        rows = sorted(self._rows.values(), key=lambda r: r.created_at)
+    async def list(
+        self, *, limit: int = 50, offset: int = 0, name_contains: str | None = None
+    ) -> list[Entity]:
+        rows = [r for r in self._rows.values() if r.id not in self._deleted_at]
+        if name_contains:
+            needle = name_contains.lower()
+            rows = [r for r in rows if needle in r.name.lower()]
+        rows.sort(key=lambda r: r.created_at)
         return rows[offset : offset + limit]
 
     async def update(self, entity_id: str, data: {{ crud_entity | capitalize }}Update) -> Entity | None:
+        if entity_id in self._deleted_at:
+            return None
         row = self._rows.get(entity_id)
         if row is None:
             return None
@@ -60,13 +89,30 @@ class InMemory{{ crud_entity | capitalize }}Repository:
         return updated
 
     async def delete(self, entity_id: str) -> bool:
-        return self._rows.pop(entity_id, None) is not None
+        if entity_id not in self._rows or entity_id in self._deleted_at:
+            return False
+{% if crud_soft_delete %}        self._deleted_at[entity_id] = _now()
+{% else %}        del self._rows[entity_id]
+{% endif %}        return True
 
-    async def count(self) -> int:
-        return len(self._rows)
+    async def bulk_delete(self, entity_ids: Sequence[str]) -> int:
+        # NOTE: a generator expression here (`sum(1 for x in xs if await ...)`)
+        # would silently become an async generator and break `sum()`; loop instead.
+        deleted = 0
+        for eid in entity_ids:
+            if await self.delete(eid):
+                deleted += 1
+        return deleted
+
+    async def count(self, *, name_contains: str | None = None) -> int:
+        rows = [r for r in self._rows.values() if r.id not in self._deleted_at]
+        if name_contains:
+            needle = name_contains.lower()
+            rows = [r for r in rows if needle in r.name.lower()]
+        return len(rows)
 
     async def exists(self, entity_id: str) -> bool:
-        return entity_id in self._rows
+        return entity_id in self._rows and entity_id not in self._deleted_at
 
 {% if crud_backend == 'postgres' %}
 class Postgres{{ crud_entity | capitalize }}Repository:
@@ -88,19 +134,37 @@ class Postgres{{ crud_entity | capitalize }}Repository:
             await s.commit()
             return Entity.model_validate(row, from_attributes=True)
 
+    async def bulk_create(self, items: list[{{ crud_entity | capitalize }}Create]) -> list[Entity]:
+        from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
+
+        rows = [
+            {{ crud_entity | capitalize }}Row(id=str(uuid.uuid4()), created_at=_now(), **item.model_dump()) for item in items
+        ]
+        async with self._session() as s:
+            s.add_all(rows)
+            await s.commit()
+            return [Entity.model_validate(r, from_attributes=True) for r in rows]
+
     async def get(self, entity_id: str) -> Entity | None:
         from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
 
         async with self._session() as s:
             row = await s.get({{ crud_entity | capitalize }}Row, entity_id)
-            return Entity.model_validate(row, from_attributes=True) if row else None
+{% if crud_soft_delete %}            if row is not None and row.deleted_at is not None:
+                return None
+{% endif %}            return Entity.model_validate(row, from_attributes=True) if row else None
 
-    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]:
+    async def list(
+        self, *, limit: int = 50, offset: int = 0, name_contains: str | None = None
+    ) -> list[Entity]:
         from sqlalchemy import select
 
         from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
 
         stmt = select({{ crud_entity | capitalize }}Row).order_by({{ crud_entity | capitalize }}Row.created_at)
+{% if crud_soft_delete %}        stmt = stmt.where({{ crud_entity | capitalize }}Row.deleted_at.is_(None))
+{% endif %}        if name_contains:
+            stmt = stmt.where({{ crud_entity | capitalize }}Row.name.ilike(f"%{name_contains}%"))
         stmt = stmt.limit(limit).offset(offset)
         async with self._session() as s:
             rows = (await s.execute(stmt)).scalars().all()
@@ -113,7 +177,9 @@ class Postgres{{ crud_entity | capitalize }}Repository:
             row = await s.get({{ crud_entity | capitalize }}Row, entity_id)
             if row is None:
                 return None
-            for field, value in data.model_dump(exclude_none=True).items():
+{% if crud_soft_delete %}            if row.deleted_at is not None:
+                return None
+{% endif %}            for field, value in data.model_dump(exclude_none=True).items():
                 setattr(row, field, value)
             await s.commit()
             return Entity.model_validate(row, from_attributes=True)
@@ -125,16 +191,47 @@ class Postgres{{ crud_entity | capitalize }}Repository:
             row = await s.get({{ crud_entity | capitalize }}Row, entity_id)
             if row is None:
                 return False
-            await s.delete(row)
+{% if crud_soft_delete %}            if row.deleted_at is not None:
+                return False
+            row.deleted_at = _now()
             await s.commit()
             return True
+{% else %}            await s.delete(row)
+            await s.commit()
+            return True
+{% endif %}
+    async def bulk_delete(self, entity_ids: Sequence[str]) -> int:
+        from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
 
-    async def count(self) -> int:
+        if not entity_ids:
+            return 0
+{% if crud_soft_delete %}        from sqlalchemy import update as sa_update
+
+        stmt = (
+            sa_update({{ crud_entity | capitalize }}Row)
+            .where(
+                {{ crud_entity | capitalize }}Row.id.in_(entity_ids),
+                {{ crud_entity | capitalize }}Row.deleted_at.is_(None),
+            )
+            .values(deleted_at=_now())
+        )
+{% else %}        from sqlalchemy import delete as sa_delete
+
+        stmt = sa_delete({{ crud_entity | capitalize }}Row).where({{ crud_entity | capitalize }}Row.id.in_(entity_ids))
+{% endif %}        async with self._session() as s:
+            result = await s.execute(stmt)
+            await s.commit()
+            return result.rowcount or 0  # type: ignore[attr-defined]
+
+    async def count(self, *, name_contains: str | None = None) -> int:
         from sqlalchemy import func, select
 
         from {{ python_package }}.data.models import {{ crud_entity | capitalize }}Row
 
         stmt = select(func.count()).select_from({{ crud_entity | capitalize }}Row)
+{% if crud_soft_delete %}        stmt = stmt.where({{ crud_entity | capitalize }}Row.deleted_at.is_(None))
+{% endif %}        if name_contains:
+            stmt = stmt.where({{ crud_entity | capitalize }}Row.name.ilike(f"%{name_contains}%"))
         async with self._session() as s:
             return int((await s.execute(stmt)).scalar_one())
 
@@ -160,33 +257,82 @@ class Mongo{{ crud_entity | capitalize }}Repository:
         )
 
     async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity:
-        doc = {"_id": str(uuid.uuid4()), "created_at": _now(), **data.model_dump()}
+        doc = {
+            "_id": str(uuid.uuid4()),
+            "created_at": _now(),
+{% if crud_soft_delete %}            "deleted_at": None,
+{% endif %}            **data.model_dump(),
+        }
         await self._col.insert_one(doc)
         return self._to_entity(doc)
 
+    async def bulk_create(self, items: list[{{ crud_entity | capitalize }}Create]) -> list[Entity]:
+        docs = [
+            {
+                "_id": str(uuid.uuid4()),
+                "created_at": _now(),
+{% if crud_soft_delete %}                "deleted_at": None,
+{% endif %}                **item.model_dump(),
+            }
+            for item in items
+        ]
+        if docs:
+            await self._col.insert_many(docs)
+        return [self._to_entity(d) for d in docs]
+
     async def get(self, entity_id: str) -> Entity | None:
-        doc = await self._col.find_one({"_id": entity_id})
+        doc = await self._col.find_one({"_id": entity_id{% if crud_soft_delete %}, "deleted_at": None{% endif %}})
         return self._to_entity(doc) if doc else None
 
-    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]:
-        cur = self._col.find().sort("created_at", 1).skip(offset).limit(limit)
+    async def list(
+        self, *, limit: int = 50, offset: int = 0, name_contains: str | None = None
+    ) -> list[Entity]:
+        query: dict[str, object] = {}
+{% if crud_soft_delete %}        query["deleted_at"] = None
+{% endif %}        if name_contains:
+            import re
+
+            query["name"] = {"$regex": re.escape(name_contains), "$options": "i"}
+        cur = self._col.find(query).sort("created_at", 1).skip(offset).limit(limit)
         return [self._to_entity(d) async for d in cur]
 
     async def update(self, entity_id: str, data: {{ crud_entity | capitalize }}Update) -> Entity | None:
-        patch = data.model_dump(exclude_none=True)
+{% if crud_soft_delete %}        if await self.get(entity_id) is None:
+            return None
+{% endif %}        patch = data.model_dump(exclude_none=True)
         if patch:
             await self._col.update_one({"_id": entity_id}, {"$set": patch})
         return await self.get(entity_id)
 
     async def delete(self, entity_id: str) -> bool:
-        res = await self._col.delete_one({"_id": entity_id})
+{% if crud_soft_delete %}        res = await self._col.update_one(
+            {"_id": entity_id, "deleted_at": None}, {"$set": {"deleted_at": _now()}}
+        )
+        return res.modified_count == 1
+{% else %}        res = await self._col.delete_one({"_id": entity_id})
         return res.deleted_count == 1
+{% endif %}
+    async def bulk_delete(self, entity_ids: Sequence[str]) -> int:
+        if not entity_ids:
+            return 0
+{% if crud_soft_delete %}        res = await self._col.update_many(
+            {"_id": {"$in": entity_ids}, "deleted_at": None}, {"$set": {"deleted_at": _now()}}
+        )
+        return res.modified_count
+{% else %}        res = await self._col.delete_many({"_id": {"$in": entity_ids}})
+        return res.deleted_count
+{% endif %}
+    async def count(self, *, name_contains: str | None = None) -> int:
+        query: dict[str, object] = {}
+{% if crud_soft_delete %}        query["deleted_at"] = None
+{% endif %}        if name_contains:
+            import re
 
-    async def count(self) -> int:
-        return await self._col.count_documents({})
+            query["name"] = {"$regex": re.escape(name_contains), "$options": "i"}
+        return await self._col.count_documents(query)
 
     async def exists(self, entity_id: str) -> bool:
-        return await self._col.find_one({"_id": entity_id}, {"_id": 1}) is not None
+        return await self.get(entity_id) is not None
 
 
 def get_repository() -> {{ crud_entity | capitalize }}Repository:
@@ -194,7 +340,8 @@ def get_repository() -> {{ crud_entity | capitalize }}Repository:
 {% else %}
 class Redis{{ crud_entity | capitalize }}Repository:
     """One Redis hash per {{ crud_entity }} at ``{{ crud_entity }}:<id>``, plus a sorted set
-    ``{{ crud_entity }}:index`` (score = created_at) for ordered listing."""
+    ``{{ crud_entity }}:index`` (score = created_at) for ordered listing. Filtering by
+    name has no secondary index, so it scans and filters client-side."""
 
     _INDEX = "{{ crud_entity }}:index"
 
@@ -207,14 +354,14 @@ class Redis{{ crud_entity | capitalize }}Repository:
         return f"{{ crud_entity }}:{entity_id}"
 
     def _to_entity(self, entity_id: str, h: Mapping[Any, Any]) -> Entity:
-        from datetime import datetime
+        from datetime import datetime as _dt
 
         d = {str(k): str(v) for k, v in h.items()}
         return Entity(
             id=entity_id,
             name=d["name"],
             description=d.get("description", ""),
-            created_at=datetime.fromisoformat(d["created_at"]),
+            created_at=_dt.fromisoformat(d["created_at"]),
         )
 
     async def create(self, data: {{ crud_entity | capitalize }}Create) -> Entity:
@@ -224,16 +371,49 @@ class Redis{{ crud_entity | capitalize }}Repository:
             "name": data.name,
             "description": data.description,
             "created_at": created.isoformat(),
-        }
+{% if crud_soft_delete %}            "deleted_at": "",
+{% endif %}        }
         await self._r.hset(self._key(entity_id), mapping=mapping)  # type: ignore[arg-type]
         await self._r.zadd(self._INDEX, {entity_id: created.timestamp()})
         return Entity(id=entity_id, created_at=created, **data.model_dump())
 
+    async def bulk_create(self, items: list[{{ crud_entity | capitalize }}Create]) -> list[Entity]:
+        created = _now()
+        entries = [(str(uuid.uuid4()), data) for data in items]
+        pipe = self._r.pipeline()
+        for entity_id, data in entries:
+            mapping: dict[str, str] = {
+                "name": data.name,
+                "description": data.description,
+                "created_at": created.isoformat(),
+{% if crud_soft_delete %}                "deleted_at": "",
+{% endif %}            }
+            pipe.hset(self._key(entity_id), mapping=mapping)  # type: ignore[arg-type]
+            pipe.zadd(self._INDEX, {entity_id: created.timestamp()})
+        if entries:
+            await pipe.execute()
+        return [Entity(id=eid, created_at=created, **data.model_dump()) for eid, data in entries]
+
     async def get(self, entity_id: str) -> Entity | None:
         h = await self._r.hgetall(self._key(entity_id))
-        return self._to_entity(entity_id, h) if h else None
+        if not h:
+            return None
+{% if crud_soft_delete %}        if h.get("deleted_at"):
+            return None
+{% endif %}        return self._to_entity(entity_id, h)
 
-    async def list(self, *, limit: int = 50, offset: int = 0) -> list[Entity]:
+    async def list(
+        self, *, limit: int = 50, offset: int = 0, name_contains: str | None = None
+    ) -> list[Entity]:
+        if name_contains:
+            ids = await self._r.zrange(self._INDEX, 0, -1)
+            needle = name_contains.lower()
+            matched: list[Entity] = []
+            for raw_id in ids:
+                row = await self.get(str(raw_id))
+                if row is not None and needle in row.name.lower():
+                    matched.append(row)
+            return matched[offset : offset + limit]
         ids = await self._r.zrange(self._INDEX, offset, offset + limit - 1)
         out: list[Entity] = []
         for raw_id in ids:
@@ -251,17 +431,32 @@ class Redis{{ crud_entity | capitalize }}Repository:
         return await self.get(entity_id)
 
     async def delete(self, entity_id: str) -> bool:
-        removed = await self._r.delete(self._key(entity_id))
+{% if crud_soft_delete %}        if not await self.exists(entity_id):
+            return False
+        await self._r.hset(self._key(entity_id), "deleted_at", _now().isoformat())  # type: ignore[arg-type]
+        await self._r.zrem(self._INDEX, entity_id)
+        return True
+{% else %}        removed = await self._r.delete(self._key(entity_id))
         await self._r.zrem(self._INDEX, entity_id)
         return removed == 1
+{% endif %}
+    async def bulk_delete(self, entity_ids: Sequence[str]) -> int:
+        deleted = 0
+        for eid in entity_ids:
+            if await self.delete(eid):
+                deleted += 1
+        return deleted
 
-    async def count(self) -> int:
+    async def count(self, *, name_contains: str | None = None) -> int:
+        if name_contains:
+            return len(await self.list(limit=1_000_000, offset=0, name_contains=name_contains))
         return int(await self._r.zcard(self._INDEX))
 
     async def exists(self, entity_id: str) -> bool:
-        return bool(await self._r.exists(self._key(entity_id)))
-
+{% if crud_soft_delete %}        return await self.get(entity_id) is not None
+{% else %}        return bool(await self._r.exists(self._key(entity_id)))
+{% endif %}
 
 def get_repository() -> {{ crud_entity | capitalize }}Repository:
     return Redis{{ crud_entity | capitalize }}Repository()
-{% endif %}
+{% endif -%}

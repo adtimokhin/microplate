@@ -23,7 +23,8 @@ class {{ crud_entity | capitalize }}Row(Base):
     name: Mapped[str] = mapped_column(String(200), index=True)
     description: Mapped[str] = mapped_column(String(1000), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-{% endif %}
+{% if crud_soft_delete %}    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+{% endif %}{% endif %}
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -44,3 +45,16 @@ class {{ crud_entity | capitalize }}(BaseModel):
     name: str
     description: str
     created_at: datetime
+
+
+class {{ crud_entity | capitalize }}ListResponse(BaseModel):
+    """``GET /{{ crud_entity }}s`` response: the current page plus the total matching count."""
+
+    items: list[{{ crud_entity | capitalize }}]
+    total: int
+
+
+class {{ crud_entity | capitalize }}BulkDeleteRequest(BaseModel):
+    """Body for ``POST /{{ crud_entity }}s/bulk-delete``."""
+
+    ids: list[str] = Field(min_length=1, max_length=1000)

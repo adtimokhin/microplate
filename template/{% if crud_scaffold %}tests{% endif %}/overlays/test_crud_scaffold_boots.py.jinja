@@ -1,5 +1,10 @@
 """Proves the {{ crud_entity }} CRUD scaffold is wired: full create/read/update/
-delete/count lifecycle over HTTP against the in-memory repository (D-039)."""
+delete/count lifecycle over HTTP against the in-memory repository (D-039),
+plus bulk create/delete, the list-with-total response shape, and name
+filtering (D-042). Runs the same way regardless of ``crud_soft_delete``: the
+in-memory repository behaves identically to a black-box HTTP client either
+way (a soft-deleted row disappears from get/list/count, exactly like a hard
+delete does)."""
 
 from __future__ import annotations
 
@@ -20,7 +25,11 @@ async def test_{{ crud_entity }}_crud_lifecycle() -> None:
 
         assert (await c.get(f"/{{ crud_entity }}s/{eid}")).json()["name"] == "first"
         assert (await c.get("/{{ crud_entity }}s/count")).json()["count"] == 1
-        assert len((await c.get("/{{ crud_entity }}s")).json()) == 1
+
+        listed = await c.get("/{{ crud_entity }}s")
+        assert listed.json()["total"] == 1
+        assert len(listed.json()["items"]) == 1
+        assert listed.json()["items"][0]["name"] == "first"
 
         r = await c.patch(f"/{{ crud_entity }}s/{eid}", json={"description": "d2"})
         assert r.json()["description"] == "d2"
@@ -29,3 +38,42 @@ async def test_{{ crud_entity }}_crud_lifecycle() -> None:
         assert (await c.delete(f"/{{ crud_entity }}s/{eid}")).status_code == 204
         assert (await c.get(f"/{{ crud_entity }}s/{eid}")).status_code == 404
         assert (await c.get("/{{ crud_entity }}s/count")).json()["count"] == 0
+        assert (await c.delete(f"/{{ crud_entity }}s/{eid}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_{{ crud_entity }}_bulk_and_filter() -> None:
+    from {{ python_package }}.main import create_app
+
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.post(
+            "/{{ crud_entity }}s/bulk",
+            json=[
+                {"name": "apple", "description": ""},
+                {"name": "banana", "description": ""},
+                {"name": "Apricot", "description": ""},
+            ],
+        )
+        assert r.status_code == 201
+        created = r.json()
+        assert len(created) == 3
+        ids = [row["id"] for row in created]
+
+        assert (await c.get("/{{ crud_entity }}s/count")).json()["count"] == 3
+
+        filtered = await c.get("/{{ crud_entity }}s", params={"name_contains": "ap"})
+        names = {row["name"] for row in filtered.json()["items"]}
+        assert names == {"apple", "Apricot"}
+        assert filtered.json()["total"] == 2
+        assert (await c.get("/{{ crud_entity }}s/count", params={"name_contains": "ap"})).json()["count"] == 2
+
+        r = await c.post("/{{ crud_entity }}s/bulk-delete", json={"ids": ids})
+        assert r.status_code == 200
+        assert r.json()["deleted"] == 3
+        assert (await c.get("/{{ crud_entity }}s/count")).json()["count"] == 0
+
+        # deleting again finds nothing left to delete
+        r = await c.post("/{{ crud_entity }}s/bulk-delete", json={"ids": ids})
+        assert r.json()["deleted"] == 0

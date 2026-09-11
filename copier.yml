@@ -176,6 +176,12 @@ crud_backend:
   default: "{% if db_postgres %}postgres{% elif db_mongodb %}mongodb{% else %}redis{% endif %}"
   when: false
 
+crud_soft_delete:
+  type: bool
+  help: "CRUD soft-delete (keep deleted rows, set deleted_at instead of removing them)?"
+  default: false
+  when: "crud_scaffold"
+
 # ---- messaging: Messaging ------------------------------------------
 messaging_rabbitmq:
   type: bool

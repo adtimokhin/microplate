@@ -455,6 +455,17 @@ options:
     milestone: 7
     notes: "D-039. Computed: the datastore the CRUD scaffold binds to. Priority postgres > mongodb > redis."
 
+  crud_soft_delete:
+    key: crud_soft_delete
+    group: data
+    prompt: "CRUD soft-delete (keep deleted rows, set deleted_at instead of removing them)?"
+    type: bool
+    default: false
+    when: "crud_scaffold"
+    build_status: implemented
+    milestone: 7
+    notes: "D-042. delete() sets deleted_at instead of removing the row/doc/hash; get/list/count/exists exclude soft-deleted rows by default. Default false is behavior-identical to pre-D-042 crud_scaffold (hard delete)."
+
   # ---- messaging ---------------------------------------------------
   messaging_rabbitmq:
     key: messaging_rabbitmq
