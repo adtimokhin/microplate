@@ -510,3 +510,29 @@ Every combo that ran its determinism check on a quiescent tree passed it.
   - `registry.yaml` (7 keys + overlay_order + stale header comment refreshed), `includes/answers_helpers.jinja` (overlay_order + _gates), `msvc_gen/topology.py` (`SHARED_PASSTHROUGH_KEYS` += the 7), `docs/services-config-schema.md` §2.1. copier.yml regenerated (440 lines, `--check` clean).
   - Verified: default / all-on / off renders; ruff + ruff format + mypy --strict clean; generator pytest 32 pass, boots test 4 pass; double-render byte-identical; vendored JS byte-identical to upstream; `node --check` green on all scripts. 34 keys `build_status: implemented`.
   - Hooks need node >=18 (fail-open if absent). ~15 upstream hooks not vendored (BACKLOG).
+
+## Phase 7 + 8 kickoff (2026-09-11, Lead)
+
+Owner: "Continue with both Phase 7 & 8." Five parallel workstreams spawned on disjoint
+files (only DataLayerEngineer-2 touches registry.yaml, additive-only):
+
+- **BaseTemplateEngineer-2**: D-034 (type base test files + 6 overlay conftest fragments,
+  flip `[tool.mypy] files` to include `tests`) + integration-mode-aware `test_health_ready`.
+- **TopologyEngineer-2**: `harness/run.py` real topology orchestration (wire
+  `msvc_gen.topology` for monorepo/multi_repo combos), container-mode pytest wiring
+  (D-031/milestone 8), buf contract-test tooling real wiring.
+- **AIComponentsEngineer-2**: MCP-over-HTTP integration test (chain the session-manager
+  lifespan, D-035 real attempt this time), langgraph non-determinism review.
+- **DataLayerEngineer-2**: `crud_scaffold` enrichment - bulk create/delete, list total-count,
+  optional `crud_soft_delete`, basic `name_contains` filtering.
+- **DevOpsDistribution**: Phase 8 wrap-up - verify pipx install path end to end, verify
+  `copier update` CI is a genuine tag-to-tag test, finalize `docs/private-template-access.md`
+  (D-025) as an owner-actionable checklist (no real GitHub App deployed), release readiness
+  report. Explicitly NOT pushing, NOT merging to main, NOT tagging - Lead + owner sign-off
+  required before any of that (standing "never push" constraint).
+
+Scoping note: D-038's Phase 7 list said "every BACKLOG item" - this round picks the
+high-value ones (D-034, MCP-over-HTTP, buf wiring, langgraph determinism, harness topology
+orchestration, container-mode pytest, richer CRUD). Lower-priority BACKLOG items (the
+remaining ~15 upstream claude-code-hooks, a monorepo repo-root `.claude/`, a hooks
+re-vendor script) stay deferred, "add on request".
