@@ -72,10 +72,11 @@ jobs:
       - run: uv sync --frozen || uv sync
       - name: validate registry.yaml
         run: uv run python scripts/validate_registry.py registry.yaml
-      # TODO(Phase 5 / RegistryArchitect): once scripts/gen_copier_yml.py is real,
-      # drop --allow-missing so drift between registry.yaml and copier.yml fails CI.
+      # gen_copier_yml.py is real (RegistryArchitect); copier.yml is generated and
+      # committed. --check fails the build on any drift between registry.yaml (the
+      # single source of truth) and the committed copier.yml - no --allow-missing.
       - name: copier.yml sync check
-        run: uv run python scripts/gen_copier_yml.py --check --allow-missing registry.yaml
+        run: uv run python scripts/gen_copier_yml.py --check registry.yaml
 
   determinism:
     runs-on: ubuntu-latest
@@ -87,19 +88,23 @@ jobs:
           enable-cache: true
       - run: uv python install ${{ env.PYTHON_VERSION }}
       - run: uv sync --frozen || uv sync
-      # Proves the render-twice-and-diff harness works, today, against a fixture.
+      # Proves the render-twice-and-diff harness works against a trivial fixture,
+      # independent of anything overlay-specific.
       - name: determinism (fixture, strict)
         run: >
           uv run python scripts/check_determinism.py
           --template tests/fixtures/determinism_fixture
           --answers-dir tests/fixtures/determinism_fixture/answers
           --strict
-      # Real template: skip-safe until the base template lands (no copier.yml at root).
+      # The real template, over every curated combo in ci/answers/. --strict: the
+      # base template has landed, so a missing copier.yml here is a real failure,
+      # not a soft skip.
       - name: determinism (generator template)
         run: >
           uv run python scripts/check_determinism.py
           --template .
           --answers-dir ci/answers
+          --strict
 
   harness:
     runs-on: ubuntu-latest
@@ -149,6 +154,13 @@ jobs:
           uv run bash scripts/verify_update.sh
           --template-repo tests/fixtures/determinism_fixture
           --answers tests/fixtures/determinism_fixture/answers/default.yml
-      # Real template: skip-safe until it lands.
-      - name: copier update verification (generator template)
+      # Real template, single-service: a genuine tag-to-tag `copier update` in a
+      # scratch clone (v9000.0.0 -> v9000.0.1), not a HEAD-to-HEAD comparison.
+      - name: copier update verification (generator template, single-service)
         run: uv run bash scripts/verify_update.sh --template-repo . --answers ci/answers/zero-overlay.yml
+      # Real template, monorepo: same tag-to-tag mechanism but through
+      # `msvc-gen update`'s multi-service orchestration (D-036) - N per-service
+      # `copier update` runs plus the root-layer re-render. `uv run` puts the
+      # project's own `msvc-gen` console script on PATH.
+      - name: copier update verification (generator template, monorepo)
+        run: uv run bash scripts/verify_update.sh --template-repo . --answers ci/answers/monorepo-2svc.yml

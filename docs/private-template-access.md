@@ -44,6 +44,26 @@ with worse ownership. The deploy key is fine for one or two repos but the
 permanent private key copied into every consumer is exactly the fan-out the App
 avoids.
 
+## Owner checklist (copy-paste, tick through in order)
+
+Everything below needs org-owner access this team does not have; nobody but the
+owner can complete it. Steps 1-5 are one-time. Step 6 repeats per new consumer.
+
+- [ ] 1. Create the GitHub App (`Setup: GitHub App` step 1-2 below). Note the App ID
+      and download the private key `.pem`.
+- [ ] 2. Install the App on the template repo (`microservice-boilerplate`) and on
+      every consumer repo that will run `copier update` / `msvc-gen update` in CI
+      (`Setup: GitHub App` step 3).
+- [ ] 3. Add org secrets `TEMPLATE_APP_ID` and `TEMPLATE_APP_PRIVATE_KEY` (step 4),
+      scoped to the consumer repos.
+- [ ] 4. Put the `Mint template read token` + `copier update` / `msvc-gen update`
+      steps below into each consumer repo's update workflow, replacing
+      `$TEMPLATE_REF` with that repo's pinned tag (D-012: never left unset).
+- [ ] 5. Put a rotation reminder on the calendar (step 5): regenerate
+      `TEMPLATE_APP_PRIVATE_KEY` on a fixed schedule, e.g. every 90 days.
+- [ ] 6. For each new consumer repo: add it to the App's installation (step 3) and
+      give it the two org secrets (already scoped) - no new App, no new key.
+
 ## Setup: GitHub App
 
 One-time, by an org owner:
@@ -67,7 +87,9 @@ One-time, by an org owner:
    generate a new key on the App page, update the secret, delete the old key.
    No consumer repo change needed.
 
-In each consumer repo's `copier update` workflow:
+In each consumer repo's `copier update` workflow (`$TEMPLATE_REF` is that repo's
+pinned template tag, e.g. `v0.3.0` - set it as a repo variable or hardcode it;
+never left unset, D-012):
 
 ```yaml
       - name: Mint template read token
@@ -77,22 +99,28 @@ In each consumer repo's `copier update` workflow:
           app-id: ${{ secrets.TEMPLATE_APP_ID }}
           private-key: ${{ secrets.TEMPLATE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: "microservice-template"     # the template repo name
+          repositories: "microservice-boilerplate"   # the template repo name
 
       - uses: actions/checkout@v4                     # checks out the consumer repo
 
-      - name: copier update
+      - name: msvc-gen update
         env:
           GH_TOKEN: ${{ steps.tmpl.outputs.token }}
+          TEMPLATE_REF: v0.3.0    # this repo's pinned template tag - update deliberately
         run: |
           git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
-          uv tool install copier==9.18.2
-          copier update --vcs-ref "$TEMPLATE_REF" --defaults
+          uv tool install msvc-gen   # or: pipx install msvc-gen
+          msvc-gen update -o . --vcs-ref "$TEMPLATE_REF"
 ```
 
 `--vcs-ref` is always explicit (D-012). The `insteadOf` rewrite lets Copier's
 HTTPS clone of the template use the installation token without embedding it in
 `.copier-answers.yml` (Copier stores `_src_path`; keep it as the plain HTTPS URL).
+
+`msvc-gen update` is the shipped CLI (a thin wrapper over `copier.run_update`,
+`msvc_gen/cli.py`) and is what the owner's install docs point consumers at; raw
+`copier update --vcs-ref "$TEMPLATE_REF" --defaults --trust` works identically
+if a consumer prefers calling Copier directly.
 
 ## Setup: SSH deploy key (interim only)
 

@@ -60,7 +60,18 @@ fi
 
 if [ -f scripts/validate_registry.py ]; then
   echo "[tag_release] validating registry"
-  python scripts/validate_registry.py registry.yaml || python3 scripts/validate_registry.py registry.yaml
+  # Prefer the project's own uv-managed env (has pyyaml); a bare `python`/
+  # `python3` on PATH may have neither pyyaml nor even exist (macOS/CI ships
+  # `python3` only). Without this, the check aborts release prep with a
+  # confusing "PyYAML is required" error on any machine that has not run
+  # `uv sync` and activated the venv.
+  if command -v uv >/dev/null 2>&1 && [ -f pyproject.toml ]; then
+    uv run python scripts/validate_registry.py registry.yaml
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 scripts/validate_registry.py registry.yaml
+  else
+    python scripts/validate_registry.py registry.yaml
+  fi
 fi
 
 DATE="$(date -u +%Y-%m-%d)"
