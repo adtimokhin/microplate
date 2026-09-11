@@ -3,43 +3,73 @@
 The SAME handler functions that back the REST tool endpoints{% if not tool_scaffold %} / gRPC methods{% endif %} are
 registered as MCP tools, so there is one implementation (D-035).
 
-The in-process server and its tool list are the tested contract. The
-streamable-http mount (``mcp_asgi_app``) is wired via the ``api_router`` slot but
-is best-effort: mounting streamable-http onto an existing FastAPI app has an
-upstream lifespan-chaining sharp edge (mcp issue #1367), and the exact v2 SDK
-registration surface is pinned but may shift. Any failure here degrades to "MCP
-HTTP not mounted" and is reported by ``check_mcp_server`` - it never breaks app
-import. Real end-to-end HTTP wiring is a ``tests_integration`` / hardening item.
+``get_server()`` (the in-process server + its tool list) is always available and
+is the primary tested contract - no transport, no network, fully deterministic.
+
+The streamable-http ASGI app is mounted under ``/mcp`` via the ``api_router``
+slot, at import time, exactly once - a stable dispatch shim (:func:`get_asgi_app`)
+that never itself changes. Actually serving requests needs the mcp SDK's
+``StreamableHTTPSessionManager`` lifespan running; see
+``_fragments/mcp_server/lifespan.py.jinja``, which calls :func:`start_http_transport`
+/ :func:`stop_http_transport` from the base app's ``STARTUP_HOOKS`` /
+``SHUTDOWN_HOOKS`` (mcp issue #1367: a plain ``Mount()`` does not propagate a
+sub-app's own lifespan on its own).
+
+``StreamableHTTPSessionManager.run()`` may be entered only ONCE per instance,
+ever (the SDK raises on a second call - "Create a new instance if you need to
+run again"). A real deployment's app lifespan runs once per process, so that
+would never matter, but a test suite re-enters the SAME process's app lifespan
+many times (each ``TestClient(app)`` / ``async with lifespan(app):`` in a
+different test function, all against the one module-level ``app`` singleton).
+So :func:`start_http_transport` builds a FRESH ``streamable_http_app()`` - and
+therefore a fresh session manager - on every call, and the mounted dispatch shim
+always forwards to whichever one is current. Not started (or degraded, #1367):
+the shim answers 503 rather than raising or hanging.
 """
 
 from __future__ import annotations
 
 import logging
+from contextlib import AsyncExitStack
 from typing import Any
 
 from mcp.server import MCPServer
+from starlette.applications import Starlette
+from starlette.types import Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
 _server: MCPServer | None = None
 _TOOL_NAMES: list[str] = []
+_current_asgi_app: Starlette | None = None
+_http_exit_stack: AsyncExitStack | None = None
 {% if tool_scaffold %}
 
 def _register_tool_scaffold(server: MCPServer) -> None:
     from {{ python_package }}.tools.registry import registry
 
     for spec in registry:
+        _register_one(server, spec.name, spec.description, _make_tool_fn(spec))
 
-        def _make(spec: Any) -> Any:
-            async def _call(**kwargs: Any) -> Any:
-                result = await spec.handler(spec.request_model(**kwargs))
-                return result.model_dump()
 
-            _call.__name__ = spec.name
-            _call.__doc__ = spec.description
-            return _call
+def _make_tool_fn(spec: Any) -> Any:
+    """Wrap one ``ToolSpec`` as a single-parameter MCP tool function.
 
-        _register_one(server, spec.name, spec.description, _make(spec))
+    The parameter is named ``request`` and dynamically annotated with the
+    tool's own pydantic request model, so the MCP schema nests the tool's real,
+    fully-typed field list under ``{"request": {...}}`` - not an opaque
+    ``**kwargs: dict``, which the SDK's schema builder cannot introspect (it
+    reads the function signature, not a runtime dict).
+    """
+
+    async def _call(request: Any) -> Any:
+        result = await spec.handler(request)
+        return result.model_dump()
+
+    _call.__name__ = spec.name
+    _call.__doc__ = spec.description
+    _call.__annotations__ = {"request": spec.request_model, "return": spec.response_model}
+    return _call
 {% elif api_grpc %}
 
 def _register_grpc(server: MCPServer) -> None:
@@ -74,20 +104,87 @@ def list_tool_names() -> list[str]:
     return sorted(_TOOL_NAMES)
 
 
-def mcp_asgi_app() -> Any:
-    """The streamable-http ASGI app for mounting under ``/mcp``. Best-effort:
-    returns a minimal placeholder if the SDK build fails (#1367)."""
-    try:
-        return get_server().streamable_http_app()
-    except Exception as exc:  # noqa: BLE001 - must not break app import
-        logger.warning("MCP streamable-http app unavailable: %r; mounting a placeholder", exc)
-        from starlette.applications import Starlette
+def _build_streamable_http_app() -> Starlette:
+    """Build a fresh streamable-http Starlette app bound to a NEW session manager.
+
+    ``host`` is the configured bind host (default ``0.0.0.0``, not a loopback
+    name), so the SDK's automatic DNS-rebinding protection - which only
+    auto-enables for ``127.0.0.1`` / ``localhost`` / ``::1`` - stays off by
+    default; it is designed for a server bound to a loopback address, not a
+    containerised service behind its own network boundary. Its own internal
+    route is at ``streamable_http_path="/"`` so mounting it at ``/mcp`` does not
+    double the path segment (``/mcp/mcp``).
+    """
+    from {{ python_package }}.config import get_settings
+
+    return get_server().streamable_http_app(streamable_http_path="/", host=get_settings().mcp_host)
+
+
+async def _dispatch(scope: Scope, receive: Receive, send: Send) -> None:
+    """The stable ASGI app mounted once at import time (see :func:`get_asgi_app`).
+
+    Forwards every request to whichever streamable-http app is current. Answers
+    503 if the transport has not started or is degraded, instead of raising or
+    hanging - the in-process tool path never depends on this.
+    """
+    app = _current_asgi_app
+    if app is None:
         from starlette.responses import JSONResponse
-        from starlette.routing import Route
 
-        async def _unavailable(_request: Any) -> JSONResponse:
-            return JSONResponse(
-                {"detail": "MCP HTTP transport not wired in this build"}, status_code=501
-            )
+        response: Any = JSONResponse({"detail": "MCP HTTP transport not started"}, status_code=503)
+        await response(scope, receive, send)
+        return
+    await app(scope, receive, send)
 
-        return Starlette(routes=[Route("/{path:path}", _unavailable)])
+
+def get_asgi_app() -> Any:
+    """The ASGI app to mount under ``/mcp`` (``api_router`` fragment). Always the
+    SAME stable dispatch shim - never rebuilt, never raises - see the module
+    docstring for why a stable shim is needed instead of caching one built app.
+    """
+    return _dispatch
+
+
+async def start_http_transport() -> bool:
+    """Build a fresh streamable-http app and enter its session manager's
+    ``run()`` lifespan, keeping it open until :func:`stop_http_transport`.
+
+    Called from the app's startup hook. Never raises: a build or start failure
+    degrades to "MCP HTTP not mounted" (the dispatch shim answers 503) and is
+    reported by ``check_mcp_server``; the in-process tool path is unaffected.
+    Returns whether the transport actually started.
+    """
+    global _current_asgi_app, _http_exit_stack
+
+    try:
+        app = _build_streamable_http_app()
+    except Exception as exc:  # noqa: BLE001 - must not break app startup
+        logger.warning("MCP streamable-http app could not be built: %r", exc)
+        return False
+
+    stack = AsyncExitStack()
+    try:
+        await stack.enter_async_context(get_server().session_manager.run())
+    except Exception as exc:  # noqa: BLE001 - must not break app startup
+        logger.warning("mcp session manager did not start: %r", exc)
+        await stack.aclose()
+        return False
+
+    _current_asgi_app = app
+    _http_exit_stack = stack
+    return True
+
+
+async def stop_http_transport() -> None:
+    """Close the session manager's lifespan and clear the current app.
+
+    Reverses :func:`start_http_transport`. The dispatch shim answers 503 again
+    once this returns, and the NEXT :func:`start_http_transport` call builds a
+    brand new session manager (the SDK's own instance is call-once).
+    """
+    global _current_asgi_app, _http_exit_stack
+
+    if _http_exit_stack is not None:
+        await _http_exit_stack.aclose()
+        _http_exit_stack = None
+    _current_asgi_app = None

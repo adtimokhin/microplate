@@ -28,78 +28,105 @@ def rabbitmq_channel(rabbitmq_container: str, monkeypatch: pytest.MonkeyPatch) -
         yield rabbitmq_container
     finally:
         get_settings.cache_clear()
-{% else %}class _RabbitmqFakeExchange:
-    def __init__(self, name):
-        self.name = name
-        self.published = []
-
-    async def publish(self, message, routing_key, *, mandatory=False, timeout=None):
-        self.published.append((routing_key, message.body))
-        return object()
-
-
-class _RabbitmqFakeQueue:
-    def __init__(self, name):
-        self.name = name
-        self.callback = None
-
-    async def bind(self, exchange, routing_key=None):
-        return None
-
-    async def consume(self, callback, *args, **kwargs):
-        self.callback = callback
-        return "ctag-" + self.name
-
-
-class _RabbitmqFakeChannel:
-    def __init__(self):
-        self.exchanges = {}
-        self.queues = {}
-        self.prefetch_count = None
-        self.closed = False
-
-    async def set_qos(self, prefetch_count, *args, **kwargs):
-        self.prefetch_count = prefetch_count
-
-    async def declare_exchange(self, name, *args, **kwargs):
-        return self.exchanges.setdefault(name, _RabbitmqFakeExchange(name))
-
-    async def declare_queue(self, name, *args, **kwargs):
-        return self.queues.setdefault(name, _RabbitmqFakeQueue(name))
-
-    async def get_queue(self, name, *args, **kwargs):
-        return self.queues.setdefault(name, _RabbitmqFakeQueue(name))
-
-    async def close(self):
-        self.closed = True
-
-
-class _RabbitmqFakeRobustConnection:
-    def __init__(self):
-        self.channel_obj = _RabbitmqFakeChannel()
-        self.is_closed = False
-
-    async def channel(self, *args, **kwargs):
-        return self.channel_obj
-
-    async def close(self):
-        self.is_closed = True
-
-
-@pytest.fixture(autouse=True)
-def rabbitmq_channel():
+{% else %}@pytest.fixture(autouse=True)
+def rabbitmq_channel() -> Iterator[object]:
     """Install a fake robust connection so no test opens a socket.
 
     Autouse: every test (the base smoke tests included) enters the app lifespan
     offline, so the RabbitMQ readiness check reports healthy without a broker.
     Yields the single fake channel every ``connection.channel()`` call returns.
+
+    The fake classes are local to this fixture (not module-level): their method
+    signatures need ``aio_pika`` types, and a fragment can land after another
+    overlay's fixtures in the assembled ``tests/conftest.py`` (``overlay_order``),
+    so a module-level import here risks ruff E402. Importing inside the fixture
+    body, before the nested class defs, keeps every name in scope for mypy
+    without a top-of-file import (same trick as the ``langgraph`` fixture).
     """
+    from collections.abc import Awaitable, Callable
+    from typing import cast
+
+    from aio_pika import Message
+    from aio_pika.abc import AbstractIncomingMessage, AbstractRobustConnection
+
     from {{ python_package }}.messaging import set_connection_factory
+
+    class _RabbitmqFakeExchange:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.published: list[tuple[str, bytes]] = []
+
+        async def publish(
+            self,
+            message: Message,
+            routing_key: str,
+            *,
+            mandatory: bool = False,
+            timeout: float | None = None,
+        ) -> object:
+            self.published.append((routing_key, message.body))
+            return object()
+
+    class _RabbitmqFakeQueue:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.callback: Callable[[AbstractIncomingMessage], Awaitable[None]] | None = None
+
+        async def bind(
+            self, exchange: _RabbitmqFakeExchange, routing_key: str | None = None
+        ) -> None:
+            return None
+
+        async def consume(
+            self,
+            callback: Callable[[AbstractIncomingMessage], Awaitable[None]],
+            *args: object,
+            **kwargs: object,
+        ) -> str:
+            self.callback = callback
+            return "ctag-" + self.name
+
+    class _RabbitmqFakeChannel:
+        def __init__(self) -> None:
+            self.exchanges: dict[str, _RabbitmqFakeExchange] = {}
+            self.queues: dict[str, _RabbitmqFakeQueue] = {}
+            self.prefetch_count: int | None = None
+            self.closed = False
+
+        async def set_qos(self, prefetch_count: int, *args: object, **kwargs: object) -> None:
+            self.prefetch_count = prefetch_count
+
+        async def declare_exchange(
+            self, name: str, *args: object, **kwargs: object
+        ) -> _RabbitmqFakeExchange:
+            return self.exchanges.setdefault(name, _RabbitmqFakeExchange(name))
+
+        async def declare_queue(
+            self, name: str, *args: object, **kwargs: object
+        ) -> _RabbitmqFakeQueue:
+            return self.queues.setdefault(name, _RabbitmqFakeQueue(name))
+
+        async def get_queue(self, name: str, *args: object, **kwargs: object) -> _RabbitmqFakeQueue:
+            return self.queues.setdefault(name, _RabbitmqFakeQueue(name))
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class _RabbitmqFakeRobustConnection:
+        def __init__(self) -> None:
+            self.channel_obj = _RabbitmqFakeChannel()
+            self.is_closed = False
+
+        async def channel(self, *args: object, **kwargs: object) -> _RabbitmqFakeChannel:
+            return self.channel_obj
+
+        async def close(self) -> None:
+            self.is_closed = True
 
     connection = _RabbitmqFakeRobustConnection()
 
-    async def _factory(*_args, **_kwargs):
-        return connection
+    async def _factory(*_args: object, **_kwargs: object) -> AbstractRobustConnection:
+        return cast(AbstractRobustConnection, connection)
 
     set_connection_factory(_factory)
     try:

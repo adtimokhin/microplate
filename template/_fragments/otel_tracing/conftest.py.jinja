@@ -1,7 +1,7 @@
 
 
 @pytest.fixture
-def otel_span_exporter():
+def otel_span_exporter() -> Iterator[object]:
     """In-memory span exporter wired into the tracing setup for this test.
 
     Resets the process-global tracer provider before and after so each test

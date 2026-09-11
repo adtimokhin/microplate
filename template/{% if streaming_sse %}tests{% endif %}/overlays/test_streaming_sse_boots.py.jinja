@@ -7,8 +7,10 @@ overlay's router is wired into ``api_router`` at import time via the
 
 from __future__ import annotations
 
+from starlette.testclient import TestClient
 
-def test_streaming_sse_boots(sse_client) -> None:
+
+def test_streaming_sse_boots(sse_client: TestClient) -> None:
     schema = sse_client.get("/openapi.json").json()
     assert "/stream/sse" in schema["paths"], "SSE route missing from the OpenAPI schema"
 

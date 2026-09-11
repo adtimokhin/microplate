@@ -6,6 +6,7 @@ real wiring path (lifespan startup -> setup_tracing -> FastAPI instrumentation).
 
 from __future__ import annotations
 
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from starlette.testclient import TestClient
 
 from {{ python_package }}.lifespan import SHUTDOWN_HOOKS, STARTUP_HOOKS
@@ -17,7 +18,7 @@ def test_lifecycle_hooks_registered() -> None:
     assert "_otel_tracing_shutdown" in {h.__name__ for h in SHUTDOWN_HOOKS}
 
 
-def test_tracing_exports_spans(otel_span_exporter) -> None:
+def test_tracing_exports_spans(otel_span_exporter: InMemorySpanExporter) -> None:
     app = create_app()
     with TestClient(app) as client:
         response = client.get("/")

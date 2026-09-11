@@ -1,0 +1,65 @@
+"""Proves the MCP streamable-http transport actually serves real MCP protocol
+traffic end to end (Phase 7 hardening of D-035).
+
+Fully offline and deterministic: the client talks to the mounted ``/mcp`` app
+over an in-process ASGI transport (``httpx2.ASGITransport``), never a real
+socket or a real network round trip. No ``tests_integration`` gate - there is
+nothing external to spin up, so this test always runs.
+
+This exercises the fix for the upstream lifespan-chaining sharp edge (mcp issue
+#1367): ``_fragments/mcp_server/lifespan.py.jinja`` manually enters the session
+manager's ``run()`` context manager from the base app's startup hook, since a
+plain ``Mount()`` does not propagate a sub-app's own ``lifespan``. Without that
+chaining, a request to ``/mcp`` never reaches a running session and the calls
+below hang or fail.
+"""
+
+from __future__ import annotations
+
+import json
+
+import httpx2
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.types import TextContent
+
+
+async def test_mcp_server_http_round_trip() -> None:
+    from {{ python_package }}.lifespan import lifespan
+    from {{ python_package }}.main import app
+
+    async with lifespan(app):
+        assert app.state.mcp_http_ready is True, "MCP session manager did not start (see logs)"
+
+        transport = httpx2.ASGITransport(app=app)
+        base_url = "http://testserver"
+        async with (
+            httpx2.AsyncClient(transport=transport, base_url=base_url) as http_client,
+            streamable_http_client(f"{base_url}/mcp", http_client=http_client) as (
+                read_stream,
+                write_stream,
+            ),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            init_result = await session.initialize()
+            assert init_result.server_info.name == "{{ service_slug }}"
+
+            tools = await session.list_tools()
+            names = {t.name for t in tools.tools}
+{% if tool_scaffold %}            assert {"echo", "add"} <= names
+
+            result = await session.call_tool("echo", {"request": {"text": "hello"}})
+            assert result.is_error is False
+            block = result.content[0]
+            assert isinstance(block, TextContent)
+            payload = json.loads(block.text)
+            assert payload["text"] == "hello"
+{% elif api_grpc %}            assert "greet" in names
+
+            result = await session.call_tool("greet", {"name": "world"})
+            assert result.is_error is False
+            block = result.content[0]
+            assert isinstance(block, TextContent)
+            payload = json.loads(block.text)
+            assert payload["message"] == "Hello, world!"
+{% endif %}

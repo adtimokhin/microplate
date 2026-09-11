@@ -1,7 +1,7 @@
 
 
 @pytest.fixture(autouse=True)
-def grpc_channel(monkeypatch: pytest.MonkeyPatch):
+def grpc_channel(monkeypatch: pytest.MonkeyPatch) -> Iterator[object]:
     """Bind the co-hosted gRPC server to an ephemeral port for every test.
 
     Autouse: the base smoke tests enter the app lifespan, which starts the gRPC

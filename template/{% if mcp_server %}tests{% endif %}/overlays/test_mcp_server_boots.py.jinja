@@ -1,8 +1,9 @@
 """Proves the MCP server is wired: it builds and registers the service's tools
 in-process (D-035). No transport, no network - the tested contract.
 
-The ``/mcp`` streamable-http mount is best-effort (mcp issue #1367) and is
-exercised in tests_integration / Phase 7, not here."""
+The ``/mcp`` streamable-http mount and the lifespan chaining that makes it
+actually serve requests are exercised end to end in
+``test_mcp_server_http.py`` (Phase 7 hardening)."""
 
 from __future__ import annotations
 
@@ -26,6 +27,6 @@ def test_mcp_app_imports_without_error() -> None:
     """The api_router fragment appends the /mcp mount at import time; this
     confirms that path does not raise (it degrades to a placeholder if the SDK
     HTTP surface is unavailable)."""
-    from {{ python_package }}.mcp.server import mcp_asgi_app
+    from {{ python_package }}.mcp.server import get_asgi_app
 
-    assert mcp_asgi_app() is not None
+    assert get_asgi_app() is not None

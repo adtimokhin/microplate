@@ -7,6 +7,8 @@ check healthy. With no overlays selected the readiness check set is empty.
 
 from __future__ import annotations
 
+from starlette.testclient import TestClient
+
 
 def test_app_module_imports() -> None:
     from {{ python_package }}.main import app
@@ -14,29 +16,38 @@ def test_app_module_imports() -> None:
     assert app.title == "{{ service_name }}"
 
 
-def test_health_live(client) -> None:
+def test_health_live(client: TestClient) -> None:
     response = client.get("/health/live")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_health_ready(client) -> None:
+def test_health_ready(client: TestClient) -> None:
     response = client.get("/health/ready")
-    assert response.status_code == 200
     body = response.json()
+{%- if tests_integration %}
+    # tests_integration: no autouse mock backs the readiness checks here, so a
+    # check against a real backing service can legitimately report unhealthy
+    # from inside this pytest step (the service is not guaranteed reachable
+    # from here). Accept either outcome; the response shape must still hold.
+    assert response.status_code in (200, 503)
+    assert body["status"] in ("ready", "not_ready")
+{%- else %}
+    assert response.status_code == 200
     assert body["status"] == "ready"
     assert all(check["healthy"] for check in body["checks"].values())
+{%- endif %}
 {%- if not selected_overlay_ids %}
     assert body["checks"] == {}
 {%- endif %}
 
 
-def test_root(client) -> None:
+def test_root(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
     assert response.json()["service"] == "{{ service_slug }}"
 
 
-def test_correlation_id_header(client) -> None:
+def test_correlation_id_header(client: TestClient) -> None:
     response = client.get("/health/live")
     assert response.headers.get("x-request-id")

@@ -1,13 +1,11 @@
 
 
 @pytest.fixture
-def tool_client():
+def tool_client() -> Iterator[TestClient]:
     """A test client bound to the app. The ``/tools/*`` routes are wired into
     ``api_router`` at import time (``api_router.py`` fragment); tools run
     in-process, no backing service.
     """
-
-    from starlette.testclient import TestClient
 
     from {{ python_package }}.main import app
 

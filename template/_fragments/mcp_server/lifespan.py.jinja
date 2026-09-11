@@ -1,0 +1,17 @@
+
+
+async def _mcp_server_startup(app: FastAPI) -> None:
+    from {{ python_package }}.mcp.server import get_server, start_http_transport
+
+    app.state.mcp_server = get_server()
+    app.state.mcp_http_ready = await start_http_transport()
+
+
+async def _mcp_server_shutdown(app: FastAPI) -> None:
+    from {{ python_package }}.mcp.server import stop_http_transport
+
+    await stop_http_transport()
+
+
+STARTUP_HOOKS.append(_mcp_server_startup)
+SHUTDOWN_HOOKS.append(_mcp_server_shutdown)

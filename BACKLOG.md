@@ -80,3 +80,27 @@ Out-of-scope ideas. Anything not in the scope doc lands here instead of in the b
 - **Re-vendor flow for the hooks**. Refreshing to a newer upstream commit is a
   manual copy + bump of the SHA in `registry.yaml` / `.claude/hooks/VENDORED.md`.
   A `scripts/revendor_claude_hooks.sh` would make it repeatable.
+
+## Raised during Phase 7 (AIComponentsEngineer-2, mcp_server / langgraph hardening)
+
+- **`langchain_retrieval` has no test at all.** `{{ python_package }}/langchain/retrieval.py`
+  (the `POST /langchain/retrieve` route, `requires: langchain and db_qdrant`, V-6) is
+  not exercised by `test_langchain_boots.py` or any other test - `langchain_llm`
+  (the autouse fixture) only patches `build_chat_model`, and `_retrieve()`'s real
+  `AsyncQdrantClient.query_points` call is never stubbed or driven by a test. The
+  overlay builds and imports clean (verified: `langchain + langchain_retrieval +
+  db_qdrant + llm_openai` renders, `uv lock`/`sync`, ruff + mypy --strict + full
+  suite all pass), but the retrieval code path itself has zero coverage. Needs a
+  boots-test addition: patch `_retrieve` (or point `AsyncQdrantClient` at the
+  `qdrant_client` overlay's `:memory:` mock fixture) and assert `/langchain/retrieve`
+  end to end.
+- **`langgraph`'s checkpointer fixture is unconditionally the in-memory mock**,
+  even under `tests_integration: true`. `_fragments/langgraph/conftest.py.jinja`'s
+  `langgraph_app` fixture is a single autouse fixture with no `tests_integration`
+  branch (contrast every datastore overlay's conftest, which switches
+  container-backed under `tests_integration`), so the real
+  `AsyncPostgresSaver` / `AsyncRedisSaver` checkpoint path (`langgraph_checkpoint`
+  postgres or redis) is never exercised by any test in any configuration. Needs a
+  container-backed variant gated on `tests_integration`, mirroring the
+  `db_postgres` / `db_redis` pattern, once `tests_integration` scaffolding
+  (milestone 8) lands.

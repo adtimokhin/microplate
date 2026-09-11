@@ -9,6 +9,7 @@ no network and no real API key.
 from __future__ import annotations
 
 from anthropic import AsyncAnthropic
+from starlette.testclient import TestClient
 
 
 async def test_llm_anthropic_boots(anthropic_client: object) -> None:
@@ -27,7 +28,7 @@ async def test_llm_anthropic_boots(anthropic_client: object) -> None:
         assert result.healthy, result
 
 
-def test_llm_anthropic_summarize_route(anthropic_client: object, client) -> None:
+def test_llm_anthropic_summarize_route(anthropic_client: object, client: TestClient) -> None:
     response = client.post("/llm/anthropic/summarize", json={"text": "a longer piece of text"})
     assert response.status_code == 200
     body = response.json()
@@ -35,7 +36,9 @@ def test_llm_anthropic_summarize_route(anthropic_client: object, client) -> None
     assert body["summary"]
 
 
-def test_llm_anthropic_summarize_operation_in_openapi(anthropic_client: object, client) -> None:
+def test_llm_anthropic_summarize_operation_in_openapi(
+    anthropic_client: object, client: TestClient
+) -> None:
     schema = client.get("/openapi.json").json()
     op_ids = {
         methods[verb]["operationId"]

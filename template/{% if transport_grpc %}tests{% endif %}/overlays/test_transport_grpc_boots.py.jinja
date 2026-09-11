@@ -9,7 +9,7 @@ from __future__ import annotations
 from {{ python_package }}.config import get_settings
 from {{ python_package }}.transport.grpc import PEERS, peer_target
 
-_EXPECTED_PEERS = {
+_EXPECTED_PEERS: dict[str, str] = {
 {%- for peer in service_names if peer != service_name %}
     "{{ peer }}": "{{ peer }}:50051",
 {%- endfor %}

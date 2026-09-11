@@ -7,11 +7,13 @@ tool routes are live as soon as the app is built.
 
 from __future__ import annotations
 
+from starlette.testclient import TestClient
+
 from {{ python_package }}.health import check_tool_scaffold
 from {{ python_package }}.tools import ToolRegistry, registry
 
 
-async def test_tool_scaffold_boots(tool_client) -> None:
+async def test_tool_scaffold_boots(tool_client: TestClient) -> None:
     assert isinstance(registry, ToolRegistry)
     assert len(registry) >= 1
 

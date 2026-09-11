@@ -14,7 +14,7 @@ from {{ python_package }}.main import app
 from {{ python_package }}.messaging import RabbitMQ
 
 
-async def test_messaging_rabbitmq_boots(rabbitmq_channel) -> None:
+async def test_messaging_rabbitmq_boots(rabbitmq_channel: object) -> None:
     async with lifespan(app):
         client = getattr(app.state, "rabbitmq", None)
         assert isinstance(client, RabbitMQ), "rabbitmq client missing from app.state"

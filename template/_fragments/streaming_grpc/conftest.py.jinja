@@ -1,7 +1,7 @@
 
 
 @pytest.fixture
-def grpc_stream_stub():
+def grpc_stream_stub() -> object:
     """Yield the ``chat_stub`` async-context helper for the bidi example.
 
     The co-hosted gRPC server (api_grpc overlay) is started by the app lifespan

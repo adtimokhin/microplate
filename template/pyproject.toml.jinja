@@ -52,7 +52,7 @@ docstring-code-format = true
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-files = ["{{ python_package }}"]
+files = ["{{ python_package }}", "tests"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -12,6 +12,7 @@ from __future__ import annotations
 {% endif %}from collections.abc import Iterator
 
 import pytest
+from fastapi import FastAPI
 from starlette.testclient import TestClient
 {% if llm_openai or llm_anthropic or langsmith %}
 # Collection-time placeholders for required-no-default secrets (D-030 class 2,
@@ -25,7 +26,7 @@ os.environ.setdefault("APP_LANGSMITH_TRACING", "false")
 {% endif %}{% endif %}
 
 @pytest.fixture
-def app():
+def app() -> FastAPI:
     """A fresh application instance."""
 
     # Imported lazily: ``main`` builds ``app = create_app()`` -> ``Settings()`` at
@@ -37,7 +38,7 @@ def app():
 
 
 @pytest.fixture
-def client(app) -> Iterator[TestClient]:
+def client(app: FastAPI) -> Iterator[TestClient]:
     """Sync test client. Entering the context runs the app lifespan."""
 
     with TestClient(app) as test_client:

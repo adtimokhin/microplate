@@ -16,7 +16,7 @@ from {{ python_package }}.lifespan import lifespan
 from {{ python_package }}.main import app
 
 
-async def test_api_grpc_boots(grpc_channel) -> None:
+async def test_api_grpc_boots(grpc_channel: object) -> None:
     async with lifespan(app):
         runtime = getattr(app.state, "grpc_server", None)
         assert isinstance(runtime, GrpcRuntime), "grpc runtime missing from app.state"
