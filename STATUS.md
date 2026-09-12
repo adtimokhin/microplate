@@ -582,3 +582,17 @@ combo re-checked.
 **Phases 3-7 are all complete and green.** Remaining: Phase 8's actual release cut (merge
 `build/all-phases` -> `main`, tag, push) needs explicit owner sign-off per the standing
 "never push" constraint - prep work is done (`3b6da48`).
+
+## v0.1.0 cut (2026-09-12, Lead)
+
+`build/all-phases` fast-forward merged into `main` (5bed95b..c963388, 27 commits,
+no divergence, no merge commit needed). Tagged with `scripts/tag_release.sh v0.1.0`:
+annotated tag `v0.1.0` on release commit `2061107`, `CHANGELOG.md` created.
+`validate_registry.py` clean, `gen_copier_yml.py --check` in sync, generator's own
+test suite 32/32. **Not pushed** - no remote is even configured on this checkout,
+and pushing needs explicit owner sign-off regardless (standing constraint).
+`git push origin main v0.1.0` is the command once that sign-off is given.
+
+This closes Phases 0-8 of the original plan (registry/base/overlays/AI/topology/
+verification/hardening/release-prep). `build/all-phases` still exists, one commit
+behind `main`; ongoing work should branch from `main` going forward.
