@@ -15,6 +15,10 @@ opt-in overlays. Generate with none of them and you get a plain service.
 - Scope and rationale: `microservice-boilerplate-generator-scope.md`
 - Every resolved design question: `DECISIONS.md`
 - Build status log: `STATUS.md`
+- **Exhaustive per-component reference** (every key, every dependency, every
+  endpoint, every env var, worked recipes): `docs/component-reference.md`
+- Describe what you want in plain language and get a ready-to-run command: the
+  `scaffold-microservice` Claude Code skill (`.claude/skills/scaffold-microservice/`)
 
 ## What you get
 
@@ -87,7 +91,7 @@ listed here (`api_rest`, `logging_structured`, `healthchecks`) are always on.
 | `db_redis` | `false` | Async Redis (redis-py asyncio) on a shared pool, with a read-through cache helper. |
 | `redis_pubsub` | `false` | Adds a Redis pub/sub helper inside the `db_redis` tree. Requires `db_redis`. |
 | `db_qdrant` | `false` | Async Qdrant vector store: `AsyncQdrantClient`, idempotent collection bootstrap, thin upsert/search helpers. |
-| `crud_scaffold` | `false` | An example entity plus an async repository (create/get/list/update/delete/count/exists) and a REST router at `/<entity>s`, backed by the highest-priority store you selected (`db_postgres` > `db_mongodb` > `db_redis`). Sub-options: `crud_entity` (entity name, default `item`), `crud_backend` (computed). Requires one of `db_postgres` / `db_mongodb` / `db_redis`. |
+| `crud_scaffold` | `false` | An example entity plus an async repository (create/get/list/update/delete/count/exists/bulk_create/bulk_delete) and a REST router at `/<entity>s` - single and bulk create, list (with `name_contains` filtering and a `total` count), get/update/delete by id, backed by the highest-priority store you selected (`db_postgres` > `db_mongodb` > `db_redis`). Sub-options: `crud_entity` (entity name, default `item`), `crud_backend` (computed), `crud_soft_delete` (default `false`; when on, delete sets `deleted_at` instead of removing the row). Requires one of `db_postgres` / `db_mongodb` / `db_redis`. |
 
 ### Messaging
 
@@ -130,6 +134,18 @@ listed here (`api_rest`, `logging_structured`, `healthchecks`) are always on.
 | `ci` | `github_actions` | CI workflow template (`github_actions` or `none`). |
 | `license` | `proprietary` | `proprietary`, `mit`, or `apache_2_0`. |
 
+### Developer tooling (always on, no key needed)
+
+Every generated service ships `ruff` as both linter and formatter
+(`[tool.ruff.format]` in `pyproject.toml`) and a `.pre-commit-config.yaml` with
+`repo: local` hooks that run `ruff format` and `ruff check --fix` against the
+project's own pinned `ruff` before a commit is allowed to land - the hook is
+activated for you automatically when you generate into an existing git repo.
+
+| Key | Default | What it adds |
+| --- | --- | --- |
+| `claude_hooks` | `true` | Vendors a curated subset of [karanb192/claude-code-hooks](https://github.com/karanb192/claude-code-hooks) (MIT) as checked-in JavaScript under `.claude/hooks/`, plus a generated `.claude/settings.json` wiring only the hooks you select. Sub-options (each gates both the file and the wiring): `hook_guard_pack` (default `true` - blocks dangerous shell commands, secret-file reads, unsafe git, test deletion), `hook_format_code` (default `true` - runs `ruff format`/`ruff check --fix` on Claude's own edits), `hook_protect_tests` (default `true`), `hook_auto_stage`, `hook_session_logger`, `hook_instructions_audit` (all default `false`). Needs Node >= 18 on `PATH`; fails open if absent. |
+
 ## Generate
 
 ### With `msvc-gen`
@@ -140,15 +156,15 @@ default and must always be supplied.
 
 ```sh
 # minimal: a plain service
-msvc-gen new --output ~/Desktop/hello-svc --vcs-ref v0.4.0 \
+msvc-gen new --output ~/Desktop/hello-svc --vcs-ref v0.1.0 \
   --data service_name=hello-svc
 
 # from an answers file (see ci/answers/ for complete examples)
-msvc-gen new --output ~/Desktop/rag-search --vcs-ref v0.4.0 \
+msvc-gen new --output ~/Desktop/rag-search --vcs-ref v0.1.0 \
   --answers-file ci/answers/rag-backend.yml
 
 # multi-service (monorepo / multi_repo needs msvc-gen, not raw copier)
-msvc-gen new --output ~/Desktop/shop-platform --vcs-ref v0.4.0 \
+msvc-gen new --output ~/Desktop/shop-platform --vcs-ref v0.1.0 \
   --answers-file ci/answers/monorepo-2svc.yml
 ```
 
@@ -161,7 +177,7 @@ the `services_config` shape: `docs/non-interactive.md`.
 ```sh
 copier copy --defaults --trust --skip-tasks \
   --data-file ci/answers/rag-backend.yml \
-  --vcs-ref v0.4.0 \
+  --vcs-ref v0.1.0 \
   <template-src> ~/Desktop/rag-search
 ```
 
@@ -209,10 +225,10 @@ without losing your edits (Copier does a three-way merge):
 ```sh
 # single service
 cd my-service
-msvc-gen update --output . --vcs-ref v0.5.0
+msvc-gen update --output . --vcs-ref v0.2.0
 
 # multi-service: re-runs copier update per services/<svc>/ and re-renders the root
-msvc-gen update --output ./shop-platform --vcs-ref v0.5.0
+msvc-gen update --output ./shop-platform --vcs-ref v0.2.0
 ```
 
 The clean-apply gate and per-slice results: `docs/update-verification.md`.
@@ -231,16 +247,32 @@ Release and tagging process: `docs/release-process.md`.
 | `msvc_gen/` | The `msvc-gen` CLI and the multi-service orchestrator (`topology.py`, `root_templates/`) |
 | `scripts/` | Registry derivation and validation, determinism and update verification, release, pin refresh |
 | `ci/answers/` | Complete, valid example answers files |
-| `docs/` | Contracts and process docs |
+| `docs/` | Contracts and process docs, incl. `docs/component-reference.md` |
 | `harness/` | Combinatorial render/boot verification harness |
+| `.claude/skills/scaffold-microservice/` | The plain-language-to-command skill |
 
 ## Contributor quickstart
 
 ```sh
 uv sync
 uv run ruff check .
+uv run ruff format --check .
 uv run mypy
 uv run pytest
 python scripts/validate_registry.py
 python scripts/gen_copier_yml.py --check
 ```
+
+To run the full combinatorial gate that CI and every release rely on (renders
+every implemented overlay combination, boots each under Docker Compose, checks
+determinism, lint, types, and tests): see `harness/README.md`. To see exactly
+what a change is expected to touch before landing it, read
+`docs/overlay-contract.md`.
+
+## Release process
+
+Releases are annotated SemVer git tags (`vMAJOR.MINOR.PATCH`) on `main`, cut
+with `scripts/tag_release.sh` (updates `CHANGELOG.md`, commits, tags - never
+pushes). Full process, versioning rules, and the private-repo access model for
+downstream CI: `docs/release-process.md` and `docs/private-template-access.md`.
+Pushing a tag always needs explicit sign-off - there is no tag-push automation.
