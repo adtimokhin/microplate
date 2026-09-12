@@ -536,3 +536,49 @@ high-value ones (D-034, MCP-over-HTTP, buf wiring, langgraph determinism, harnes
 orchestration, container-mode pytest, richer CRUD). Lower-priority BACKLOG items (the
 remaining ~15 upstream claude-code-hooks, a monorepo repo-root `.claude/`, a hooks
 re-vendor script) stay deferred, "add on request".
+
+## Phase 7 - FINAL VERDICT: PASS (2026-09-11, Lead)
+
+All four Phase 7 workstreams landed and verified; the last gate blocker (3 real bugs,
+none related to any single workstream) is fixed at `54f477c`:
+
+- **D-034 + integration-aware health test** (BaseTemplateEngineer-2, landed inside `2c1e081`):
+  `tests` in generated CI's mypy scope, all 6 previously-untyped overlay conftest fragments typed,
+  `test_health_ready` tolerant of a real 503 under `tests_integration`.
+- **MCP-over-HTTP + AI determinism review** (AIComponentsEngineer-2, `2c1e081`): D-035's
+  lifespan-chaining sharp edge (#1367) actually fixed (not just documented), a real MCP tool-schema
+  registration bug found and fixed, langchain's Anthropic branch missing `temperature=0` fixed.
+- **crud_scaffold enrichment** (DataLayerEngineer-2, `c375097`, D-042): bulk ops, list totals,
+  `name_contains` filtering, optional soft-delete.
+- **Harness topology orchestration + container-mode pytest + buf wiring** (TopologyEngineer-2,
+  `4346e3d`): `harness/run.py` now drives real per-service + root-layer renders for
+  `topology != single`, `TESTCONTAINERS_RYUK_DISABLED=true` unblocks `tests_integration` on this
+  Docker Desktop setup, real `buf lint` + descriptor-set determinism check.
+- **Component reference doc** (`ac198b5`) and **scaffold-microservice skill** (`9123e69`) - not
+  Phase 7 scope per se, but landed in the same window (owner request).
+
+**Gate history and the final root-causes** (all resolved):
+1. Two "clean" gate runs (51 then 29 combos) still showed 12-13 failures, ALL traced to a
+   concurrent isolated-worktree agent (mine, `ToolReferenceWriter`) breaking every dirty-worktree
+   Copier render on this machine (git submodule update trips on the worktree's nested `.git`
+   gitlink) - not a code defect. Worktree removed.
+2. The next clean run (51 combos) still showed 13/13 failures, all `boots_tests[<svc>]` - traced to
+   `harness/run.py`'s `_service_canon` carrying its own stale `shared_keys` tuple instead of
+   `msvc_gen.topology.SHARED_PASSTHROUGH_KEYS`, so per-service overlay selection didn't see
+   `claude_hooks`/`transport_*` correctly. Harness-only bug; fixed at `54f477c`.
+3. The next run (29 combos, fixed harness) showed 1/29 failing: `db_qdrant`'s `tests_integration`
+   fixture called a nonexistent `testcontainers` method (`get_rest_url` -> `rest_host_address`),
+   invisible until task 2 unblocked that code path for the first time. Fixed at `54f477c`.
+4. Re-verifying that fix surfaced a second real bug via `ruff`: `llm_openai` + `llm_anthropic` with
+   `llm_response_mode=fake_server` both emit the same module-level stdlib imports into the assembled
+   `tests/conftest.py`, tripping E402/F811 together. Fixed at `54f477c` (nested imports, same
+   pattern as `messaging_rabbitmq`'s fakes). A `claude_hooks` boots-test formatting edge case
+   (all `hook_*` off) fixed in the same commit.
+
+**Final authoritative numbers**: 29/29 pairwise + 22/22 singletons = 51/51 PASS, clean tree,
+no worktree interference. Generator's own test suite 32/32. Double-render byte-identical on every
+combo re-checked.
+
+**Phases 3-7 are all complete and green.** Remaining: Phase 8's actual release cut (merge
+`build/all-phases` -> `main`, tag, push) needs explicit owner sign-off per the standing
+"never push" constraint - prep work is done (`3b6da48`).
