@@ -1,48 +1,54 @@
 
 
-{% if llm_response_mode | default("mock_transport") == "fake_server" %}import json
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-
-class _OpenAIStubHandler(BaseHTTPRequestHandler):
-    """Canned Chat Completions response for any POST."""
-
-    def log_message(self, *_args: object) -> None:  # silence the default stderr log
-        return
-
-    def do_POST(self) -> None:  # noqa: N802 - stdlib handler name
-        self.rfile.read(int(self.headers.get("content-length", 0) or 0))
-        body = json.dumps(
-            {
-                "id": "chatcmpl-stub",
-                "object": "chat.completion",
-                "created": 0,
-                "model": "gpt-4o-mini",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": "This is a deterministic test summary.",
-                        },
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            }
-        ).encode()
-        self.send_response(200)
-        self.send_header("content-type", "application/json")
-        self.send_header("content-length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-
-@pytest.fixture(autouse=True)
+{% if llm_response_mode | default("mock_transport") == "fake_server" %}@pytest.fixture(autouse=True)
 def openai_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
-    """Mock mode (fake_server): a local stub HTTP server stands in for the API (D-013)."""
+    """Mock mode (fake_server): a local stub HTTP server stands in for the API (D-013).
+
+    Imports and the handler class are local to this fixture, not module scope:
+    a fragment can land after another overlay's fixture code in the assembled
+    ``tests/conftest.py`` (``overlay_order``), and ``llm_anthropic``'s fake_server
+    branch needs the identical stdlib imports, so any module-level import here
+    risks ``ruff`` E402/F811 when both are selected together (same reasoning as
+    the ``messaging_rabbitmq`` fragment's nested fakes).
+    """
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
     from {{ python_package }}.config import get_settings
+
+    class _OpenAIStubHandler(BaseHTTPRequestHandler):
+        """Canned Chat Completions response for any POST."""
+
+        def log_message(self, *_args: object) -> None:  # silence the default stderr log
+            return
+
+        def do_POST(self) -> None:  # noqa: N802 - stdlib handler name
+            self.rfile.read(int(self.headers.get("content-length", 0) or 0))
+            body = json.dumps(
+                {
+                    "id": "chatcmpl-stub",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "gpt-4o-mini",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "This is a deterministic test summary.",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
     server = HTTPServer(("127.0.0.1", 0), _OpenAIStubHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

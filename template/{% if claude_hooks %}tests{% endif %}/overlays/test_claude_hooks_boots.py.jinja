@@ -18,7 +18,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CLAUDE = _REPO_ROOT / ".claude"
 _HOOKS = _CLAUDE / "hooks"
 
+{%- set _any_hook = hook_guard_pack | default(false) or hook_protect_tests | default(false)
+    or hook_format_code | default(false) or hook_auto_stage | default(false)
+    or hook_session_logger | default(false) or hook_instructions_audit | default(false) %}
 # (answer flag rendered in, script basename, hook events it must appear under)
+{%- if _any_hook %}
 _SELECTED: list[tuple[str, list[str]]] = [
 {%- if hook_guard_pack | default(false) %}
     ("guard-pack.js", ["PreToolUse"]),
@@ -39,6 +43,9 @@ _SELECTED: list[tuple[str, list[str]]] = [
     ("instructions-audit.js", ["InstructionsLoaded", "UserPromptSubmit", "PreToolUse"]),
 {%- endif %}
 ]
+{%- else %}
+_SELECTED: list[tuple[str, list[str]]] = []
+{%- endif %}
 
 _GUARD_LIB = [
     "block-dangerous-commands.js",
@@ -64,7 +71,7 @@ def test_selected_scripts_are_vendored() -> None:
     for script, _ in _SELECTED:
         assert (_HOOKS / script).is_file(), f"missing vendored hook: {script}"
     assert (_HOOKS / "VENDORED.md").is_file()
-{% if hook_guard_pack | default(false) %}
+{%- if hook_guard_pack | default(false) %}
     for mod in _GUARD_LIB:
         assert (_HOOKS / "lib" / mod).is_file(), f"guard-pack lib missing: {mod}"
 {%- endif %}

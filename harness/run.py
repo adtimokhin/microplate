@@ -481,9 +481,18 @@ def _service_canon(reg: Any, answers: dict[str, Any], svc: str) -> dict[str, Any
     """The canonical single-service assignment for one entry in `service_names`:
     registry defaults <- shared top-level keys a `single` render also needs <-
     `services_config[svc]` - mirrors `msvc_gen.topology.effective_answers` /
-    docs/services-config-schema.md §3, so `reg.selected_overlays` on the result
-    matches what actually rendered into that service's directory."""
-    shared_keys = ("license", "ci", "iac", "docker")
+    docs/services-config-schema.md §2.1, so `reg.selected_overlays` on the result
+    matches what actually rendered into that service's directory.
+
+    `shared_keys` MUST be `msvc_gen.topology.SHARED_PASSTHROUGH_KEYS` itself, not
+    a second hand-maintained copy: a prior hardcoded subset here (missing
+    transport_grpc/transport_rabbitmq/claude_hooks/hook_*) silently fell back to
+    each key's bare registry default instead of the real top-level answer,
+    producing a wrong `per_service_overlays` (e.g. claude_hooks reported selected
+    when the top-level answer was `false`) and a spurious `boots_tests[<svc>]`
+    failure for a boots test that correctly wasn't rendered. Found via the Phase 7
+    clean gate: every failure was this one drift, not a template bug."""
+    shared_keys = _topology_mod().SHARED_PASSTHROUGH_KEYS
     submap = (answers.get("services_config") or {}).get(svc) or {}
     assignment = {
         **reg.base_namespace(),
