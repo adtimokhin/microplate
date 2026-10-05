@@ -26,7 +26,7 @@ meta:
   dependency_manager: "uv"            # D-010, committed uv.lock, `uv sync --locked`
   base_image: "python:3.12-slim-bookworm"  # D-010, no Alpine
   copier_tasks_form: "list"           # D-012, list-form _tasks only, explicit vcs_ref
-  pins_frozen_as_of: "2026-09-07"     # D-019, bumps only via an explicit refresh-pins PR
+  pins_frozen_as_of: "2026-10-05"     # D-019, bumps only via an explicit refresh-pins PR
   skip_if_exists:                     # emitted as copier _skip_if_exists (generate-once, never clobbered on update)
     - ".env"
 
@@ -160,12 +160,12 @@ options:
       - "template/{% if api_grpc %}{{ python_package }}{% endif %}/grpc"
       - "template/{% if api_grpc %}proto{% endif %}"
     python_deps:
-      grpcio:       { version: "1.83.1", as_of: "2026-09-07" }
-      grpcio-tools: { version: "1.83.1", as_of: "2026-09-07", group: dev }   # regen-only (proto/regen_proto.py), not a runtime dep
-      grpcio-health-checking: { version: "1.83.1", as_of: "2026-09-07" }
-      grpcio-reflection: { version: "1.83.1", as_of: "2026-09-07" }
-      grpcio-status: { version: "1.83.1", as_of: "2026-09-07" }
-      protobuf: { version: "7.36.1", as_of: "2026-09-07" }
+      grpcio:       { version: "1.84.0", as_of: "2026-10-05" }
+      grpcio-tools: { version: "1.84.0", as_of: "2026-10-05", group: dev }   # regen-only (proto/regen_proto.py), not a runtime dep
+      grpcio-health-checking: { version: "1.84.0", as_of: "2026-10-05" }
+      grpcio-reflection: { version: "1.84.0", as_of: "2026-10-05" }
+      grpcio-status: { version: "1.84.0", as_of: "2026-10-05" }
+      protobuf: { version: "7.36.2", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_GRPC_HOST, type: str, required: false, default: "0.0.0.0", secret: false, description: "gRPC bind host" }
       - { name: APP_GRPC_PORT, type: int, required: false, default: 50051, secret: false, description: "gRPC bind port" }
@@ -192,7 +192,7 @@ options:
     requires:
       - { expr: "api_rest", message: "SSE streaming requires the REST API (V-14)." }
     python_deps:
-      sse-starlette: { version: "3.4.11", as_of: "2026-09-07" }
+      sse-starlette: { version: "3.5.0", as_of: "2026-10-05" }
     env_vars: []
     fixtures:
       - { name: sse_client, kind: mock }
@@ -263,7 +263,7 @@ options:
     requires:
       - { expr: "tool_scaffold or api_grpc", message: "MCP server requires the tool scaffold or the gRPC server (V-3)." }
     python_deps:
-      mcp: { version: "2.2.0", as_of: "2026-09-07" }
+      mcp: { version: "2.3.0", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_MCP_HOST, type: str, required: false, default: "0.0.0.0", secret: false, description: "MCP server bind host" }
       - { name: APP_MCP_PORT, type: int, required: false, default: 8900, secret: false, description: "MCP server bind port" }
@@ -290,10 +290,10 @@ options:
       - "template/{% if db_postgres %}{{ python_package }}{% endif %}/db/postgres"
       - "template/{% if db_postgres %}migrations{% endif %}"
     python_deps:
-      "sqlalchemy[asyncio]": { version: "2.0.52", as_of: "2026-09-07" }
-      asyncpg:    { version: "0.31.0", as_of: "2026-09-07" }
-      alembic:    { version: "1.19.2", as_of: "2026-09-07" }
-      greenlet:   { version: "3.5.5",  as_of: "2026-09-07" }
+      "sqlalchemy[asyncio]": { version: "2.0.52", as_of: "2026-10-05" }
+      asyncpg:    { version: "0.31.0", as_of: "2026-10-05" }
+      alembic:    { version: "1.20.0", as_of: "2026-10-05" }
+      greenlet:   { version: "3.5.6",  as_of: "2026-10-05" }
     env_vars:
       - { name: APP_DB_POSTGRES_DSN, type: str, required: false, default: "postgresql+asyncpg://app:app@postgres:5432/app", secret: true, description: "D-030: default targets the compose service `postgres`; override in prod. secret for log redaction." }
       - { name: APP_DB_POSTGRES_POOL_SIZE, type: int, required: false, default: 5, secret: false, description: "SQLAlchemy pool size" }
@@ -319,7 +319,7 @@ options:
     template_paths:
       - "template/{% if db_mongodb %}{{ python_package }}{% endif %}/db/mongodb"
     python_deps:
-      pymongo: { version: "4.18.0", as_of: "2026-09-07" }
+      pymongo: { version: "4.18.2", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_DB_MONGODB_URI, type: str, required: false, default: "mongodb://mongodb:27017", secret: true, description: "D-030: default targets the compose service `mongodb`; override in prod. secret for log redaction." }
       - { name: APP_DB_MONGODB_DATABASE, type: str, required: false, default: "{{ service_slug }}", secret: false, description: "Mongo database name; per-service default (D-030, Lead ruling 2026-09-08; precedent APP_LANGSMITH_PROJECT)." }
@@ -347,7 +347,7 @@ options:
     template_paths:
       - "template/{% if db_redis %}{{ python_package }}{% endif %}/db/redis"
     python_deps:
-      redis: { version: "8.1.0", as_of: "2026-09-07" }
+      redis: { version: "8.1.0", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_REDIS_URL, type: str, required: false, default: "redis://redis:6379/0", secret: true, description: "D-030: default targets the compose service `redis`; override in prod. secret for log redaction." }
       - { name: APP_REDIS_MAX_CONNECTIONS, type: int, required: false, default: 20, secret: false, description: "redis-py connection pool cap" }
@@ -387,7 +387,7 @@ options:
     template_paths:
       - "template/{% if db_qdrant %}{{ python_package }}{% endif %}/db/qdrant"
     python_deps:
-      qdrant-client: { version: "1.19.0", as_of: "2026-09-07" }
+      qdrant-client: { version: "1.19.1", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_QDRANT_URL, type: str, required: false, default: "http://qdrant:6333", secret: false, description: "D-030: default targets the compose service `qdrant`; override in prod." }
       - { name: APP_QDRANT_API_KEY, type: str, required: false, default: null, secret: true, description: "Qdrant API key if auth enabled" }
@@ -478,8 +478,8 @@ options:
     template_paths:
       - "template/{% if messaging_rabbitmq %}{{ python_package }}{% endif %}/messaging"
     python_deps:
-      aio-pika: { version: "10.0.1", as_of: "2026-09-07" }
-      "testcontainers[rabbitmq]": { version: "4.15.0", as_of: "2026-09-08", group: dev }   # NOT bare testcontainers: the rabbitmq extra pulls sync `pika`, which aio-pika does not provide. uv unions this with the datastores' bare testcontainers line.
+      aio-pika: { version: "10.1.0", as_of: "2026-10-05" }
+      "testcontainers[rabbitmq]": { version: "4.15.0", as_of: "2026-10-05", group: dev }   # NOT bare testcontainers: the rabbitmq extra pulls sync `pika`, which aio-pika does not provide. uv unions this with the datastores' bare testcontainers line.
     env_vars:
       - { name: APP_RABBITMQ_URL, type: str, required: false, default: "amqp://guest:guest@rabbitmq:5672/", secret: true, description: "D-030: default targets the compose service `rabbitmq`; override in prod. secret for log redaction." }
       - { name: APP_RABBITMQ_PREFETCH, type: int, required: false, default: 10, secret: false, description: "Consumer prefetch count" }
@@ -582,8 +582,8 @@ options:
     template_paths:
       - "template/{% if llm_openai %}{{ python_package }}{% endif %}/llm/openai"
     python_deps:
-      openai:   { version: "3.8.0",  as_of: "2026-09-07" }
-      tenacity: { version: "9.1.4",  as_of: "2026-09-07" }
+      openai:   { version: "3.24.0",  as_of: "2026-10-05" }
+      tenacity: { version: "9.1.4",  as_of: "2026-10-05" }
     env_vars:
       - { name: APP_LLM_OPENAI_API_KEY, type: str, required: true, default: null, secret: true, description: "OpenAI API key" }
       - { name: APP_LLM_OPENAI_MODEL, type: str, required: false, default: "gpt-4o-mini", secret: false, description: "Default model id" }
@@ -609,8 +609,8 @@ options:
     template_paths:
       - "template/{% if llm_anthropic %}{{ python_package }}{% endif %}/llm/anthropic"
     python_deps:
-      anthropic: { version: "1.4.0", as_of: "2026-09-07" }
-      tenacity:  { version: "9.1.4", as_of: "2026-09-07" }
+      anthropic: { version: "1.11.0", as_of: "2026-10-05" }
+      tenacity:  { version: "9.1.4", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_LLM_ANTHROPIC_API_KEY, type: str, required: true, default: null, secret: true, description: "Anthropic API key" }
       - { name: APP_LLM_ANTHROPIC_MODEL, type: str, required: false, default: "claude-sonnet-5", secret: false, description: "Default model id" }
@@ -660,11 +660,11 @@ options:
     requires:
       - { expr: "llm_openai or llm_anthropic", message: "LangChain requires an LLM provider (V-7)." }
     python_deps:
-      langchain:      { version: "1.4.0", as_of: "2026-09-07" }
-      langchain-core: { version: "1.6.2", as_of: "2026-09-07" }
-      langchain-openai:    { version: "1.6.0", as_of: "2026-09-07" }
-      langchain-anthropic: { version: "1.7.1", as_of: "2026-09-07" }
-      langchain-qdrant:    { version: "1.1.0", as_of: "2026-09-07" }
+      langchain:      { version: "1.4.3", as_of: "2026-10-05" }
+      langchain-core: { version: "1.6.6", as_of: "2026-10-05" }
+      langchain-openai:    { version: "1.6.7", as_of: "2026-10-05" }
+      langchain-anthropic: { version: "1.7.5", as_of: "2026-10-05" }
+      langchain-qdrant:    { version: "1.1.0", as_of: "2026-10-05" }
     env_vars: []
     fixtures:
       - { name: langchain_llm, kind: mock }
@@ -702,7 +702,7 @@ options:
       - { expr: "db_qdrant", message: "Embedding pipeline requires Qdrant (V-4)." }
       - { expr: "embedding_backend == 'fastembed' or llm_openai", message: "OpenAI embeddings need the OpenAI client; fastembed is offline (V-8)." }
     python_deps:
-      "qdrant-client[fastembed]": { version: "1.19.0", as_of: "2026-09-07" }
+      "qdrant-client[fastembed]": { version: "1.19.0", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_EMBEDDING_BATCH_SIZE, type: int, required: false, default: 64, secret: false, description: "Ingestion batch size" }
     fixtures:
@@ -755,12 +755,12 @@ options:
     requires:
       - { expr: "db_postgres or db_redis", message: "LangGraph requires a Postgres or Redis checkpoint store (V-5)." }
     python_deps:
-      langgraph: { version: "1.2.11", as_of: "2026-09-07" }
-      langgraph-checkpoint: { version: "4.2.0", as_of: "2026-09-07" }
-      langgraph-checkpoint-postgres: { version: "3.1.2", as_of: "2026-09-07" }
-      langgraph-checkpoint-redis:    { version: "0.5.2", as_of: "2026-09-07" }
-      psycopg:      { version: "3.3.5", as_of: "2026-09-07" }
-      psycopg-pool: { version: "3.3.1", as_of: "2026-09-07" }
+      langgraph: { version: "1.2.12", as_of: "2026-10-05" }
+      langgraph-checkpoint: { version: "4.2.0", as_of: "2026-10-05" }
+      langgraph-checkpoint-postgres: { version: "3.1.2", as_of: "2026-10-05" }
+      langgraph-checkpoint-redis:    { version: "0.5.2", as_of: "2026-10-05" }
+      psycopg:      { version: "3.3.6", as_of: "2026-10-05" }
+      psycopg-pool: { version: "3.3.3", as_of: "2026-10-05" }
     env_vars: []
     fixtures:
       - { name: langgraph_app, kind: mock }
@@ -798,7 +798,7 @@ options:
     requires:
       - { expr: "llm_openai or llm_anthropic", message: "LangSmith needs an LLM provider to trace (V-10)." }
     python_deps:
-      langsmith: { version: "0.12.2", as_of: "2026-09-07" }
+      langsmith: { version: "0.14.4", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_LANGSMITH_API_KEY, type: str, required: true, default: null, secret: true, description: "LangSmith API key" }
       - { name: APP_LANGSMITH_PROJECT, type: str, required: false, default: "{{ service_slug }}", secret: false, description: "LangSmith project name" }
@@ -819,10 +819,10 @@ options:
     type: bool
     default: true
     python_deps:
-      pytest:          { version: "9.1.1", as_of: "2026-09-07" }
-      pytest-asyncio:  { version: "1.4.0", as_of: "2026-09-07" }
-      pytest-cov:      { version: "7.1.0", as_of: "2026-09-07" }
-      anyio:           { version: "4.11.0", as_of: "2026-09-07" }
+      pytest:          { version: "9.1.1", as_of: "2026-10-05" }
+      pytest-asyncio:  { version: "1.4.0", as_of: "2026-10-05" }
+      pytest-cov:      { version: "7.1.0", as_of: "2026-10-05" }
+      anyio:           { version: "4.15.1", as_of: "2026-10-05" }
     build_status: planned
     milestone: 8
 
@@ -833,7 +833,7 @@ options:
     type: bool
     default: false
     python_deps:
-      testcontainers: { version: "4.15.0", as_of: "2026-09-07" }
+      testcontainers: { version: "4.15.0", as_of: "2026-10-05" }
     build_status: planned
     milestone: 8
     notes: "Which containers spin up is derived from selected datastores/broker."
@@ -870,7 +870,7 @@ options:
     type: bool
     default: true
     python_deps:
-      structlog: { version: "26.1.0", as_of: "2026-09-07" }
+      structlog: { version: "26.1.0", as_of: "2026-10-05" }
     build_status: planned
     milestone: 2
     notes: "Base-level. Key exists to allow opting out. D-011: correlation-ID middleware is vendored into the base, not an external dependency."
@@ -886,9 +886,9 @@ options:
     template_paths:
       - "template/{% if otel_tracing %}{{ python_package }}{% endif %}/observability/otel"
     python_deps:
-      opentelemetry-sdk: { version: "1.44.0", as_of: "2026-09-07" }
-      opentelemetry-exporter-otlp-proto-http: { version: "1.44.0", as_of: "2026-09-07" }
-      opentelemetry-instrumentation-fastapi: { version: "0.65b0", as_of: "2026-09-07" }
+      opentelemetry-sdk: { version: "1.45.0", as_of: "2026-10-05" }
+      opentelemetry-exporter-otlp-proto-http: { version: "1.45.0", as_of: "2026-10-05" }
+      opentelemetry-instrumentation-fastapi: { version: "0.66b0", as_of: "2026-10-05" }
     env_vars:
       - { name: APP_OTEL_EXPORTER_OTLP_ENDPOINT, type: str, required: false, default: "http://localhost:4318", secret: false, description: "OTLP HTTP/protobuf endpoint (D-011)" }
       - { name: APP_OTEL_SERVICE_NAME, type: str, required: false, default: "{{ service_slug }}", secret: false, description: "Resource service.name" }
@@ -1224,8 +1224,8 @@ image_resolution:
 # Concrete compose image tags, one owner per row (D-023). Referenced by image_resolution and by
 # compose_services entries. Tags marked as_of: null are not yet pinned by their owner.
 compose_image_pins:
-  redis_plain:  { image: "redis:8.0", owner: data_layer_engineer, as_of: "2026-09-07" }
-  redis_stack:  { image: "redis/redis-stack:7.4.0-v8", owner: data_layer_engineer, as_of: "2026-09-08", notes: "Verified 2026-09-08: multi-arch, MODULE LIST shows ReJSON + search (what langgraph-checkpoint-redis needs), highest patch on the 7.4.0 line. IR-1 is currently implemented inline in template/_fragments/db_redis/compose.yml.jinja; if gen_copier_yml.py later exposes a computed resolved-image key the fragment should consume that instead of duplicating the rule." }
+  redis_plain:  { image: "redis:8.0", owner: data_layer_engineer, as_of: "2026-10-05" }
+  redis_stack:  { image: "redis/redis-stack:7.4.0-v8", owner: data_layer_engineer, as_of: "2026-10-05", notes: "Verified 2026-09-08: multi-arch, MODULE LIST shows ReJSON + search (what langgraph-checkpoint-redis needs), highest patch on the 7.4.0 line. IR-1 is currently implemented inline in template/_fragments/db_redis/compose.yml.jinja; if gen_copier_yml.py later exposes a computed resolved-image key the fragment should consume that instead of duplicating the rule." }
 
 # ---------------------------------------------------------------------------
 # Version-gated structural changes. Emitted to copier.yml as _migrations by the derivation script.

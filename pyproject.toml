@@ -21,7 +21,7 @@ classifiers = [
 # in registry.yaml (9.18.2); pinned exact here for a reproducible generator install.
 dependencies = [
     "copier==9.18.2",
-    "pyyaml==6.0.2",
+    "pyyaml==6.0.3",
 ]
 
 [project.scripts]
@@ -36,9 +36,9 @@ msvc-gen = "msvc_gen.cli:main"
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
-    "ruff==0.16.6",
-    "mypy==2.3.1",
-    "types-pyyaml==6.0.12.20250915",
+    "ruff==0.16.10",
+    "mypy==2.4.0",
+    "types-pyyaml==6.0.12.20260906",
     "packaging==26.3",              # used by scripts/refresh_pins.py
 ]
 
